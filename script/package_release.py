@@ -11,6 +11,7 @@ import plistlib
 import re
 import shutil
 import subprocess
+from prepare_release_runtime import source_notice_hashes, validate_notices
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -65,6 +66,7 @@ def package(app: Path, materials: Path, output: Path, version: str) -> None:
     dependency_source = materials / "iina-dependencies-source.tar.gz"
     if sha256(dependency_source) != provenance["sourceArchiveSHA256"]:
         raise RuntimeError("Dependency source archive does not match the tested app")
+    validate_notices(runtime_root / "components", source_notice_hashes(dependency_source))
     if not (runtime_root / "components/GPL-3.0.txt").is_file():
         raise RuntimeError("Combined binary license and component notices are missing")
     output.mkdir(parents=True, exist_ok=True)

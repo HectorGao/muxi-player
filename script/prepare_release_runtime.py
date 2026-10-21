@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -58,8 +59,9 @@ def archive_notices(path: Path) -> list[tuple[str, bytes]]:
                 if item.isfile() and notice_name(item.name)]
 
 
-def unpack_recipe(archive_path: Path, destination: Path) -> None:
+def unpack_recipe(archive_path: Path, destination: Path) -> set[Path]:
     # Recipes contain only regular files/directories. Never follow archive links.
+    files = set()
     with tarfile.open(archive_path) as archive:
         for item in archive.getmembers():
             relative = PurePosixPath(item.name)
@@ -75,8 +77,10 @@ def unpack_recipe(archive_path: Path, destination: Path) -> None:
                     raise RuntimeError(f"Modified recipe is preserved: {target}")
                 target.write_bytes(data)
                 target.chmod(item.mode & 0o777)
+                files.add(target.relative_to(destination))
             else:
                 raise RuntimeError(f"Unexpected recipe archive entry: {item.name}")
+    return files
 
 
 def git_source(component: dict, cache: Path) -> tuple[Path, list[dict]]:
@@ -125,7 +129,55 @@ def copy_git_sources(checkout: Path, destination: Path) -> list[Path]:
     return result
 
 
-def write_archive(directory: Path, output: Path) -> None:
+def validate_files(directory: Path, expected: set[Path], allow_missing: bool = False,
+                   ignore_finder_metadata: bool = False) -> None:
+    """Reject unknown files before packaging; Finder metadata is never included."""
+    for relative in expected:
+        target = directory / relative
+        if allow_missing and not target.exists() and not target.is_symlink():
+            continue
+        if (relative.is_absolute() or ".." in relative.parts or target.is_symlink()
+                or not target.is_file() or not target.resolve().is_relative_to(directory.resolve())):
+            raise RuntimeError(f"Missing or unsafe material file: {relative}")
+    for target in directory.rglob("*"):
+        if ignore_finder_metadata and target.name == ".DS_Store":
+            continue
+        if target.is_symlink() or (not target.is_dir() and target.relative_to(directory) not in expected):
+            raise RuntimeError(f"Unexpected material file is preserved: {target.relative_to(directory)}")
+
+
+def source_notice_hashes(source_archive: Path) -> dict[Path, str]:
+    """Read the notice whitelist from an already SHA-256-verified source archive."""
+    result = {}
+    prefix = PurePosixPath("iina-dependencies/notices")
+    with tarfile.open(source_archive) as archive:
+        for item in archive.getmembers():
+            name = PurePosixPath(item.name)
+            if not name.is_relative_to(prefix) or item.isdir():
+                continue
+            relative = name.relative_to(prefix)
+            if not item.isfile() or ".." in relative.parts or Path(relative) in result:
+                raise RuntimeError(f"Unsafe or duplicate source notice: {item.name}")
+            result[Path(relative)] = hashlib.sha256(archive.extractfile(item).read()).hexdigest()
+    if not result or Path("GPL-3.0.txt") not in result:
+        raise RuntimeError("Corresponding source archive lacks the release notice set")
+    return result
+
+
+def validate_notices(directory: Path, expected: dict[Path, str], ignore_finder_metadata: bool = False) -> None:
+    validate_files(directory, set(expected), ignore_finder_metadata=ignore_finder_metadata)
+    for relative, expected_hash in expected.items():
+        if digest(directory / relative) != expected_hash:
+            raise RuntimeError(f"Notice differs from corresponding source: {relative}")
+
+
+def write_archive(directory: Path, output: Path, files: set[Path]) -> None:
+    # Validate before opening output so an injected file cannot replace an
+    # existing verified archive. Only explicit entries are added, nonrecursively.
+    validate_files(directory, files, ignore_finder_metadata=True)
+    entries = set(files)
+    for relative in files:
+        entries.update(relative.parents)
     # Fixed metadata yields the same archive on the developer machine and CI.
     def metadata(item: tarfile.TarInfo) -> tarfile.TarInfo | None:
         if ".DS_Store" in PurePosixPath(item.name).parts or ".git" in PurePosixPath(item.name).parts:
@@ -136,7 +188,55 @@ def write_archive(directory: Path, output: Path) -> None:
         return item
     with output.open("wb") as stream, gzip.GzipFile(filename="", mode="wb", fileobj=stream, mtime=0) as compressed:
         with tarfile.open(fileobj=compressed, mode="w") as archive:
-            archive.add(directory, arcname="iina-dependencies", filter=metadata)
+            for relative in sorted(entries):
+                name = str(PurePosixPath("iina-dependencies") / relative)
+                archive.add(directory / relative, arcname=name, recursive=False, filter=metadata)
+
+
+def self_test(output: Path) -> None:
+    """Exercise extra-file rejection without deleting the fixtures or old output."""
+    checks = output / "script-checks"
+    checks.mkdir(parents=True, exist_ok=True)
+    base = Path(tempfile.mkdtemp(prefix="whitelist-", dir=checks))
+    for index, extra in enumerate(("private.txt", "recipes/sources/private.env", "notices/private.txt")):
+        material = base / str(index) / "material"
+        material.mkdir(parents=True)
+        (material / "known.txt").write_text("verified public source\n")
+        archive = material.parent / "existing-source.tar.gz"
+        write_archive(material, archive, {Path("known.txt")})
+        before = digest(archive)
+        injected = material / extra
+        injected.parent.mkdir(parents=True, exist_ok=True)
+        injected.write_text("retain but reject\n")
+        try:
+            write_archive(material, archive, {Path("known.txt")})
+        except RuntimeError as error:
+            assert "Unexpected material file" in str(error)
+        else:
+            raise AssertionError(f"Accepted injected source file: {extra}")
+        assert digest(archive) == before
+        assert injected.read_text() == "retain but reject\n"
+        with tarfile.open(archive) as saved:
+            assert saved.getnames() == ["iina-dependencies", "iina-dependencies/known.txt"]
+    for index, extra in enumerate(("private.txt", ".DS_Store")):
+        notices = base / f"components-{index}"
+        notices.mkdir()
+        known = notices / "GPL-3.0.txt"
+        known.write_text("license fixture\n")
+        expected = {Path("GPL-3.0.txt"): digest(known)}
+        validate_notices(notices, expected)
+        (notices / extra).write_text("retain but reject\n")
+        for check in (lambda: validate_files(notices, set(expected), allow_missing=True),
+                      lambda: validate_notices(notices, expected)):
+            try:
+                check()
+            except RuntimeError as error:
+                assert "Unexpected material file" in str(error)
+            else:
+                raise AssertionError(f"Accepted injected app notice: {extra}")
+        assert (notices / extra).read_text() == "retain but reject\n"
+    print("PASS: source/app notice whitelists reject extra files and preserve existing archives/files.")
+    print(f"Self-test fixtures retained at {base}")
 
 
 def prepare(output: Path) -> None:
@@ -161,12 +261,14 @@ def prepare(output: Path) -> None:
 
     material = output / "source-materials"
     recipes = material / "recipes"
-    unpack_recipe(recipe_archive, recipes)
+    material_files = {Path("recipes") / relative for relative in unpack_recipe(recipe_archive, recipes)}
     sources = recipes / "sources"
     sources.mkdir(parents=True, exist_ok=True)
     notices = output / "notices"
     notices.mkdir(parents=True, exist_ok=True)
     archives = [item for item in lock["components"] if "url" in item]
+    material_files.update(Path("recipes/sources") / item["filename"] for item in archives)
+    notice_files = set()
     failures = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         jobs = {pool.submit(download, item["url"], sources / item["filename"], item["sha256"]): item
@@ -191,6 +293,8 @@ def prepare(output: Path) -> None:
             item["submodules"] = submodules
             destination = sources / checkout.name
             tracked_files = copy_git_sources(checkout, destination)
+            material_files.update((destination / path.relative_to(checkout)).relative_to(material)
+                                  for path in tracked_files)
             texts = [(str(path.relative_to(checkout)), path.read_bytes())
                      for path in sorted(tracked_files) if notice_name(path.name)]
         if not texts:
@@ -202,9 +306,11 @@ def prepare(output: Path) -> None:
             original = notices / "originals" / item["name"] / relative
             original.parent.mkdir(parents=True, exist_ok=True)
             original.write_bytes(data)
+            notice_files.add(original.relative_to(notices))
         header = f"{item['name']} {item['version']}\nSource: {item.get('url', item.get('repository'))}\n"
         combined = header + "\n".join(f"\n--- {name} ---\n" + data.decode("utf-8", errors="replace") for name, data in texts)
         (notices / f"{item['name']}.txt").write_text(combined)
+        notice_files.add(Path(f"{item['name']}.txt"))
         item["noticeFiles"] = [name for name, _ in texts]
         inventory.append(item)
     (material / "source-inventory.json").write_text(json.dumps(inventory, indent=2) + "\n")
@@ -216,9 +322,16 @@ def prepare(output: Path) -> None:
     shutil.copy2(ROOT / "Sources/CMPV/LICENSE.GPL", notices / "GPL-2.0.txt")
     with tarfile.open(sources / "ffmpeg-9.0.1.tar.xz") as archive:
         (notices / "GPL-3.0.txt").write_bytes(archive.extractfile("ffmpeg-9.0.1/COPYING.GPLv3").read())
-    shutil.copytree(notices, material / "notices", dirs_exist_ok=True)
+    notice_files.update(map(Path, ("runtime-lock.json", "README.md", "GPL-2.0.txt", "GPL-3.0.txt")))
+    validate_files(notices, notice_files, ignore_finder_metadata=True)
+    for relative in notice_files:
+        target = material / "notices" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(notices / relative, target)
+    material_files.update(Path("notices") / relative for relative in notice_files)
+    material_files.update(map(Path, ("source-inventory.json", "runtime-lock.json", "README.md")))
     source_archive = output / "iina-dependencies-source.tar.gz"
-    write_archive(material, source_archive)
+    write_archive(material, source_archive, material_files)
     provenance = {"source": "IINA official dependencies release", "recipeCommit": lock["recipeCommit"],
                   "upstreamRelease": lock["upstreamRelease"], "runtimeArchiveSHA256": lock["runtimeSHA256"],
                   "sourceArchiveSHA256": digest(source_archive),
@@ -230,5 +343,9 @@ def prepare(output: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / ".local/release-materials")
+    parser.add_argument("--self-test", action="store_true", help="Check whitelist rejection without network or builds")
     args = parser.parse_args()
-    prepare(args.output.resolve())
+    if args.self_test:
+        self_test(args.output.resolve())
+    else:
+        prepare(args.output.resolve())

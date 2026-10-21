@@ -8,3 +8,4 @@ xcuserdata/
 .env.*
 .local/
 .local-*.log
+__pycache__/

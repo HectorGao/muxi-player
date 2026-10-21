@@ -28,6 +28,7 @@ jobs:
           brew install ffmpeg
       - name: Fetch verified runtime and complete corresponding sources
         run: |
+          python3 script/prepare_release_runtime.py --self-test
           python3 script/prepare_release_runtime.py
           echo "MUXI_MPV_LIB_DIR=$GITHUB_WORKSPACE/.local/release-materials/runtime" >> "$GITHUB_ENV"
       - name: Test Emby protocol and playback requests

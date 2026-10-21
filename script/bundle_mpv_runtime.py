@@ -17,6 +17,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+from prepare_release_runtime import source_notice_hashes, validate_files, validate_notices
 
 
 def run(*args: str) -> str:
@@ -147,6 +148,10 @@ def bundle(app_bundle: Path, directory: Path, libraries: list[Library], main_fil
         source_archive = directory.parent / "iina-dependencies-source.tar.gz"
         if not source_archive.is_file() or sha256(source_archive) != proof["sourceArchiveSHA256"]:
             raise RuntimeError("Matching dependency source archive is missing or changed")
+        expected_notices = source_notice_hashes(source_archive)
+        validate_notices(directory.parent / "notices", expected_notices, ignore_finder_metadata=True)
+        notice_destination = app_bundle / "Contents/Resources/ThirdParty/mpv/components"
+        validate_files(notice_destination, set(expected_notices), allow_missing=True)
     frameworks = app_bundle / "Contents" / "Frameworks"
     frameworks.mkdir(parents=True, exist_ok=True)
     filenames = {library.filename for library in libraries}
@@ -208,7 +213,11 @@ def bundle(app_bundle: Path, directory: Path, libraries: list[Library], main_fil
         shutil.copy2(project_root / "Sources" / "CMPV" / filename, notices / filename)
     shutil.copy2(project_root / "docs" / "mpv-runtime.md", notices / "mpv-runtime.md")
     if provenance.is_file():
-        shutil.copytree(directory.parent / "notices", notices / "components", dirs_exist_ok=True)
+        for relative in expected_notices:
+            target = notices / "components" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(directory.parent / "notices" / relative, target)
+        validate_notices(notices / "components", expected_notices)
         shutil.copy2(provenance, notices / "runtime-provenance.json")
     metadata = {
         "purpose": ("pinned release runtime; matching dependency source archive required alongside binary"
