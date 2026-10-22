@@ -1,0 +1,18 @@
+{
+  "tool": "Built-in image_gen",
+  "date": "2026-10-23",
+  "options": [
+    {
+      "key": "A",
+      "prompt": "Use case: logo-brand. Create ONE premium macOS and Windows application icon for muxi, Chinese name 幕汐, an open-source video player and private film library. Direction A: a sculpted translucent sea-glass ribbon forming a clean lowercase m silhouette, subtle play-triangle negative space. Deep midnight teal squircle tile, icy aqua and soft silver highlights, refined optical glass depth, restrained luminous edges. Strong recognizable silhouette at 32px, two or three broad shapes, no tiny detail. Straight-on orthographic app icon, centered, square image, tile fills 84% of canvas with generous uniform margin. True transparent background outside the tile. No typography, no labels, no watermark, no mockup, no existing brand logo. Elegant and calm, crafted rather than flashy."
+    },
+    {
+      "key": "B",
+      "prompt": "Use case: logo-brand. Create ONE premium macOS and Windows application icon for muxi, Chinese name 幕汐, an open-source video player and private film library. Direction B: a warm silver rounded-square tile with a simple monolithic amber-orange play prism, its two broad folded translucent surfaces subtly suggest an m and cinema light. Pearl white frosted glass, warm copper and champagne refraction, delicate shadows, highly legible silhouette at 32px. Distinct from generic media play buttons through its folded sculptural form. Straight-on orthographic app icon, centered, square image, tile fills 84% of canvas with generous uniform margin. True transparent background outside the tile. No typography, no labels, no watermark, no mockup, no existing brand logo. Minimal tactile premium desktop icon."
+    },
+    {
+      "key": "C",
+      "prompt": "Use case: logo-brand. Create ONE premium macOS and Windows application icon for muxi, Chinese name 幕汐, an open-source video player and private film library. Direction C: a graphic pair of flowing ivory and pale mint bands creating an abstract m and a small play aperture, over a near-black graphite rounded-square tile. Mostly flat modernist symbol with only a delicate ceramic relief and a narrow emerald accent, no glass rainbow. The flowing mark hints at motion and a curated film collection without literal waves or curtains. Two broad bold ribbons, recognizable at 32px. Straight-on orthographic app icon, centered, square image, tile fills 84% of canvas with generous uniform margin. True transparent background outside the tile. No typography, no labels, no watermark, no mockup, no existing brand logo. Quiet precision and strong identity."
+    }
+  ]
+}

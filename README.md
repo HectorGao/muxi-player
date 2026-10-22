@@ -1,10 +1,12 @@
-# 幕汐播放器 · Muxi Player
+# muxi
 
-免费开源的原生 macOS Emby / Jellyfin 客户端。SwiftUI 界面 + libmpv 播放内核（IINA 同样使用 mpv），在幕汐窗口内解码和播放，直接连接你自己的媒体服务器，没有订阅、广告、遥测或第三方账号。幕汐原创代码采用 MIT；随应用打包的播放运行库另有 GPL 等许可要求，见下方许可证说明。
+幕汐 · 播放器与私人影视库
 
-「幕汐」取幕布与潮汐之意；英文 Muxi 中的 mux 呼应音视频封装，把片源、音轨和字幕汇入同一场放映。
+muxi 是面向 macOS 与 Windows 的免费开源视频播放器与私人影视库项目。**当前可下载版本为 macOS；Windows 版尚在规划，暂不提供安装包。** 当前采用 SwiftUI + libmpv（IINA 同样使用 mpv），在应用内解码，直接连接自己的 Emby / Jellyfin 服务器，没有订阅、广告、遥测或第三方账号。幕汐原创代码采用 MIT；随应用打包的播放运行库另有 GPL 等许可要求，见下方许可证说明。
 
-> 当前是 [v0.1.0-alpha.2 预览版](https://github.com/HectorGao/muxi-player/releases/tag/v0.1.0-alpha.2)。真实 Emby 播放已做本机验证；Jellyfin 已接入官方接口并通过协议测试替身检查，尚未用真实 Jellyfin 实例验收。兼容性仍需在不同服务器及媒体格式上验证，不是 Infuse / SenPlayer 的完整替代品。
+英文名统一使用小写 **muxi**，下方中文名为 **幕汐**。mux 呼应音视频封装。后续功能和平台交付标准见 [更新路线图](docs/ROADMAP.md)，图标候选见 [品牌图标](docs/brand/README.md)。
+
+> 当前是 [v0.1.0-alpha.3 预览版](https://github.com/HectorGao/muxi-player/releases/tag/v0.1.0-alpha.3)。真实 Emby 播放已做本机验证；Jellyfin 已接入官方接口并通过协议测试替身检查，尚未用真实 Jellyfin 实例验收。兼容性仍需在不同服务器及媒体格式上验证，不是 Infuse / SenPlayer 的完整替代品。
 
 ## 已实现
 
@@ -45,9 +47,9 @@ cd muxi-player
 
 Command Line Tools 27 缺少 SwiftUI State 宏，并未自动发现 Testing 宏插件。项目使用标准 State 属性包装器的类型别名；测试脚本按当前工具链定位 Testing 插件，不修改全局 SDK 或开发者配置。
 
-从 [GitHub Releases](https://github.com/HectorGao/muxi-player/releases) 下载带版本号的 macOS APP 压缩包，解压后将 `MuxiPlayer.app` 放入“应用程序”。预览包面向 Apple Silicon（arm64）、macOS 14+，使用临时签名，尚无 Developer ID 签名或 Apple 公证；首次打开可能被 Gatekeeper 提示。Intel Mac 尚未实机验收，不提供 Intel 包。
+从 [GitHub Releases](https://github.com/HectorGao/muxi-player/releases) 下载带版本号的 **DMG**，打开后将 `muxi.app` 拖入 `Applications`，弹出磁盘，再从应用程序启动。也保留 APP ZIP 下载；更新前先退出旧版。预览包面向 Apple Silicon（arm64）、macOS 14+，使用临时签名，尚无 Developer ID 签名或 Apple 公证；首次打开可能被 Gatekeeper 提示。Intel Mac 尚未实机验收，不提供 Intel 包。
 
-每次版本更新提交代码并推送 GitHub；`v*` tag 工作流构建 APP、源码附件和 SHA-256 清单，创建对应预览版 Release。已有版本和附件不覆盖。构建及发布细节见 [运行库与发布说明](docs/mpv-runtime.md)。
+每次版本更新提交代码并推送 GitHub；`v*` tag 工作流构建 DMG、APP ZIP、源码附件和 SHA-256 清单，创建对应预览版 Release。已有版本和附件不覆盖。构建及发布细节见 [运行库与发布说明](docs/mpv-runtime.md)。
 
 ## 使用
 
@@ -62,7 +64,7 @@ Command Line Tools 27 缺少 SwiftUI State 宏，并未自动发现 Testing 宏�
 
 高码率播放时，画质区显示接收速率、缓存秒数、实际硬件 / 软件解码状态和累计丢帧。持续下载速度低于片源码率时，本地实时降码率不能省下公网带宽：原片仍需先完整传到本机，再编码还会增加计算负担。优先在版本菜单选择更低码率的已有片源；服务器允许时再调整分辨率 / 码率。暂停预缓冲只能吸收短时抖动，不能保证持续低带宽下无限流畅。幕汐保持 mpv 自动硬件解码，没有加入无效的本机“省流量转码”开关。参考 [Emby 播放方式说明](https://emby.media/support/articles/DirectPlay-Stream-Transcoding.html) 与 [mpv 硬件解码说明](https://mpv.io/manual/stable/#options-hwdec)。
 
-如果 Emby 服务器按客户端名称限制连接，可在登录页选择“客户端标识 → SenPlayer 兼容”。该选项仅将 Emby `Authorization` 的 `Client` 声明为 `SenPlayer`，HTTP User-Agent、设备标识和版本仍属于幕汐；设置随此连接保存，重启后继续生效。默认使用幕汐标识；Jellyfin 连接始终使用幕汐标识，不显示此兼容选项。它不会增加账号权限或播放器解码能力，服务商调整规则后也可能失效。
+新建 Emby 连接默认使用 **SenPlayer 兼容标识**，也可选择 **Infuse 兼容** 或 **muxi 原生标识**。仅改变 Emby `Authorization` 中的 `Client` 名称；HTTP User-Agent、设备标识、版本和实际播放内核仍属于 muxi，不复制第三方认证凭据。选择随连接保存，旧连接及未记录标识的历史连接保持原设置；Jellyfin 始终使用 muxi 原生标识。没有跨服务商的公开兼容率排名，本轮授权服务器对 Infuse 标识返回 HTTP 403、对 SenPlayer 标识允许登录，因此采用已验证的 SenPlayer 作为可切换的默认值；不能保证所有源放行；仍需有效账号和服务端授权。依据：[Emby 客户端认证字段](https://dev.emby.media/doc/restapi/User-Authentication.html)、[Infuse 的 Emby / Jellyfin 集成说明](https://support.firecore.com/hc/en-us/articles/360006462093-Streaming-from-Plex-Emby-and-Jellyfin)。
 
 如果钥匙串被锁定，或开发中重新签名使旧记录不可访问，应用仍可建立本次内存会话，并显示“登录未保存”。退出后需要重新登录；可先解锁钥匙串，或在“钥匙串访问”中移除旧的 `com.hectorgao.muxi-player` 记录，再重新连接。
 
@@ -114,7 +116,7 @@ python3 script/smoke_server.py --ffmpeg /path/to/ffmpeg
 
 在应用中选择 Emby 或 Jellyfin，并连接 `http://127.0.0.1:18796/emby`，测试账号和密码均为 `demo`。这里的 `/emby` 是 fixture 的反向代理测试路径，两种协议配置共用它。所有测试视频与事件保存在忽略提交的 `.local/smoke/` 中。测试后请在应用中断开此连接，再连接自己的服务器。
 
-本机已通过 27 项 Core 协议测试、两种服务配置的媒体墙 Store 集成检查，以及 libmpv headless 回归检查。协议测试覆盖地址校验、反向代理、按服务区分的认证/流令牌、收藏接口、筛选分页、封面元数据、HTTP 错误、直播放选择、画质约束、字幕/音轨参数、进度字段及时间转换。
+本机已通过 30 项 Core 协议测试、两种服务配置的媒体墙 Store 集成检查，以及 libmpv headless 回归检查。协议测试覆盖地址校验、反向代理、按服务区分的认证/流令牌、收藏接口、筛选分页、封面元数据、HTTP 错误、直播放选择、画质约束、字幕/音轨参数、进度字段及时间转换。
 
 真实 Emby 原生界面已核对媒体墙封面、评分和年份、按库分区、完整电影列表、搜索及收藏增删；临时收藏测试结束后已恢复原状态。部分分区曾返回 HTTP 502，重新进入后恢复，未据此保证服务器持续可用。
 

@@ -7,7 +7,7 @@ struct ConnectView: View {
     @ViewState private var username = ""
     @ViewState private var password = ""
     @ViewState private var serverKind = MediaServerKind.emby
-    @ViewState private var clientIdentity = EmbyClientIdentity.muxi
+    @ViewState private var clientIdentity = EmbyClientIdentity.senPlayer
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @FocusState private var focused: Bool
 
@@ -16,8 +16,11 @@ struct ConnectView: View {
             HStack(spacing: 70) {
                 VStack(alignment: .leading, spacing: 22) {
                     Image(systemName: "play.rectangle").font(.system(size: 52, weight: .ultraLight)).foregroundStyle(Theme.accent)
-                    Text("幕汐").font(.system(size: 52, weight: .medium, design: .serif))
-                    Text("幕布与潮汐，你的私人放映室。").font(.title3).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("muxi").font(.system(size: 64, weight: .semibold, design: .rounded)).tracking(-3)
+                        Text("幕汐").font(.title3).tracking(6).foregroundStyle(.secondary)
+                    }
+                    Text("播放器 · 私人影视库").font(.title3).foregroundStyle(.secondary)
                     Text("连接 Emby 或 Jellyfin，\n在一面海报墙里发现下一部好片。")
                         .font(.body).foregroundStyle(.secondary).lineSpacing(8).padding(.top, 12)
                     Spacer().frame(height: 26)
@@ -55,11 +58,12 @@ struct ConnectView: View {
                     if serverKind == .emby {
                         VStack(alignment: .leading, spacing: 8) {
                             Picker("客户端标识", selection: $clientIdentity) {
-                                Text("幕汐（默认）").tag(EmbyClientIdentity.muxi)
-                                Text("SenPlayer 兼容").tag(EmbyClientIdentity.senPlayer)
+                                ForEach(EmbyClientIdentity.allCases, id: \.self) { identity in
+                                    Text(identity.label).tag(identity)
+                                }
                             }.accessibilityIdentifier("client-identity")
-                            if clientIdentity == .senPlayer {
-                                Text("向服务器声明为 SenPlayer；接入仍受服务商规则限制。").font(.caption).foregroundStyle(.secondary)
+                            if clientIdentity != .muxi {
+                                Text("使用 \(clientIdentity.rawValue) 兼容标识连接；若受限，可按服务商说明切换。").font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -81,7 +85,7 @@ struct ConnectView: View {
             }.padding(.horizontal, 48).padding(.vertical, 40).frame(maxWidth: .infinity)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.canvas)
             .onSubmit(connect).onAppear { focused = true }
-            .onChange(of: serverKind) { _, _ in clientIdentity = .muxi; connection.error = nil }
+            .onChange(of: serverKind) { _, _ in connection.error = nil }
     }
 
     private func connect() {
@@ -102,8 +106,9 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Form {
-            Section("幕汐播放器 0.1.0") {
-                Text("幕布与潮汐。免费开源的原生 macOS Emby / Jellyfin 客户端。")
+            Section("muxi · 幕汐") {
+                Text("播放器与私人影视库。免费、开源，连接你的 Emby / Jellyfin 媒体收藏。")
+                LabeledContent("版本", value: Bundle.main.object(forInfoDictionaryKey: "MuxiReleaseVersion") as? String ?? "开发版")
                 Link("GitHub · HectorGao/muxi-player", destination: URL(string: "https://github.com/HectorGao/muxi-player")!)
             }
             Section("外观") {

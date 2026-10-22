@@ -73,6 +73,31 @@ def package(app: Path, materials: Path, output: Path, version: str) -> None:
     prefix = f"MuxiPlayer-{version}"
     app_zip = output / f"{prefix}-macOS-arm64.zip"
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(app_zip))
+    staging = output.parent / f"dmg-staging-{version}"
+    staging.mkdir()  # Preserve previous staging directories rather than deleting or reusing them.
+    run("ditto", str(app), str(staging / "muxi.app"))
+    (staging / "Applications").symlink_to("/Applications", target_is_directory=True)
+    (staging / "安装说明.txt").write_text(
+        f"muxi · 幕汐 {version}\n\n将 muxi.app 拖入 Applications 文件夹，再从应用程序启动。\n"
+        "Apple Silicon · macOS 14+\n此预览版采用 ad-hoc 临时签名，未经 Apple 公证。\n"
+        "更新前请退出旧版；完成后弹出本磁盘。\n"
+        "源码、第三方材料与校验值：https://github.com/HectorGao/muxi-player/releases\n")
+    app_dmg = output / f"{prefix}-macOS-arm64.dmg"
+    run("hdiutil", "create", "-volname", f"muxi {version}", "-fs", "HFS+", "-format", "UDZO",
+        "-srcfolder", str(staging), str(app_dmg))
+    run("hdiutil", "verify", str(app_dmg))
+    mounted = plistlib.loads(run("hdiutil", "attach", "-readonly", "-nobrowse", "-plist", str(app_dmg)).encode())
+    volume = next(entity for entity in mounted["system-entities"] if "mount-point" in entity)
+    try:
+        mount = Path(volume["mount-point"])
+        installed = mount / "muxi.app"
+        run("codesign", "--verify", "--deep", "--strict", str(installed))
+        if sha256(installed / "Contents/MacOS/MuxiPlayer") != sha256(executable):
+            raise RuntimeError("DMG executable differs from the verified app")
+        if (mount / "Applications").readlink() != Path("/Applications"):
+            raise RuntimeError("DMG Applications shortcut is missing or incorrect")
+    finally:
+        run("hdiutil", "detach", volume["dev-entry"])
     source_tar = output / f"{prefix}-source.tar.gz"
     # Export only committed repository contents. No .local/, .git/, credentials,
     # source download caches or runtime binaries are copied from the workspace.
@@ -87,11 +112,11 @@ def package(app: Path, materials: Path, output: Path, version: str) -> None:
     release_info = {"version": version, "buildNumber": info["CFBundleVersion"], "sourceCommit": commit,
                     "architectures": architectures, "minimumMacOS": info["LSMinimumSystemVersion"],
                     "signature": "ad-hoc", "notarized": False, "binaryLicense": "GPL-3.0-or-later",
-                    "runtime": provenance, "assets": [app_zip.name, source_tar.name, dependency_tar.name]}
+                    "runtime": provenance, "assets": [app_dmg.name, app_zip.name, source_tar.name, dependency_tar.name]}
     (output / "release-manifest.json").write_text(json.dumps(release_info, indent=2) + "\n")
     files = sorted(path for path in output.iterdir() if path.is_file())
     (output / "SHA256SUMS").write_text("".join(f"{sha256(path)}  {path.name}\n" for path in files))
-    print(f"Prepared {output}. Upload all five files together; app signing is ad-hoc, not notarized.")
+    print(f"Prepared {output}. Upload all six files together; app signing is ad-hoc, not notarized.")
 
 
 if __name__ == "__main__":

@@ -64,7 +64,7 @@ enum CredentialStore {
         client = EmbyClient(baseURL: connection.baseURL, deviceID: deviceID, connection: connection)
     }
 
-    func connect(address: String, username: String, password: String, clientIdentity: EmbyClientIdentity = .muxi, serverKind: MediaServerKind = .emby) async {
+    func connect(address: String, username: String, password: String, clientIdentity: EmbyClientIdentity = .senPlayer, serverKind: MediaServerKind = .emby) async {
         connecting = true
         error = nil
         defer { connecting = false }

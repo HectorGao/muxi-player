@@ -95,8 +95,8 @@ struct ContentView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("幕汐").font(.system(size: 32, weight: .medium, design: .serif)).tracking(3)
-                Text("幕布与潮汐").font(.caption).tracking(2).foregroundStyle(.secondary)
+                Text("muxi").font(.system(size: 36, weight: .semibold, design: .rounded)).tracking(-1.5)
+                Text("幕汐").font(.caption).tracking(4).foregroundStyle(.secondary)
             }.padding(.horizontal, 22).padding(.top, 48).padding(.bottom, 28)
             VStack(spacing: 4) {
                 navigationRow("媒体墙", icon: "square.grid.2x2", value: "home")
@@ -177,7 +177,7 @@ struct ContentView: View {
                     ForEach(AppearanceMode.allCases, id: \.self) { mode in Text(mode.label).tag(mode.rawValue) }
                 }
                 Divider()
-                Toggle("潮汐动态背景", isOn: $ambientMotion)
+                Toggle("动态毛玻璃背景", isOn: $ambientMotion)
             } label: {
                 Image(systemName: "circle.lefthalf.filled").frame(width: 28, height: 28)
             }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("外观与动态背景").accessibilityLabel("外观与动态背景")

@@ -21,7 +21,7 @@ struct LibraryView: View {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(title).font(.system(size: 32, weight: .medium, design: .serif)).tracking(1)
-                        if showHome { Text("光影有幕，故事如汐。").font(.callout).foregroundStyle(.secondary) }
+                        if showHome { Text("你的私人影视库").font(.callout).foregroundStyle(.secondary) }
                         if selection == "recommendations", !searching { Text("从你的媒体库中，按评分优先挑选未看过的影片与剧集。").font(.callout).foregroundStyle(.secondary) }
                         if selection == "favorites", !searching, library.path.isEmpty { Text("收藏同步到当前服务器，喜欢的影片随时再见。").font(.callout).foregroundStyle(.secondary) }
                     }

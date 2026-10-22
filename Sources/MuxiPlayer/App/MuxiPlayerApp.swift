@@ -11,7 +11,7 @@ import MuxiCore
     private var appearance: AppearanceMode { AppearanceMode(rawValue: appearanceMode) ?? .dark }
 
     var body: some Scene {
-        WindowGroup("幕汐播放器") {
+        WindowGroup("muxi · 幕汐") {
             ContentView(connection: connection, playback: playback)
                 .frame(minWidth: 960, minHeight: 640)
                 .preferredColorScheme(appearance.colorScheme)

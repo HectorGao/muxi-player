@@ -56,7 +56,7 @@ python3 - "$APP_BUNDLE/Contents/Info.plist" "$VERSION" "$BUILD_NUMBER" <<'PY'
 import plistlib, subprocess, sys
 info = {
     'CFBundleExecutable': 'MuxiPlayer', 'CFBundleIdentifier': 'com.hectorgao.muxi-player',
-    'CFBundleName': '幕汐播放器', 'CFBundleDisplayName': '幕汐播放器', 'CFBundlePackageType': 'APPL',
+    'CFBundleName': 'muxi', 'CFBundleDisplayName': 'muxi', 'CFBundlePackageType': 'APPL',
     'CFBundleShortVersionString': sys.argv[2].split('-')[0], 'CFBundleVersion': sys.argv[3],
     'MuxiReleaseVersion': sys.argv[2],
     'MuxiBuildCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),

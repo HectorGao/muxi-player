@@ -121,15 +121,16 @@ python3 script/package_release.py --version 0.1.0-alpha.1 \
 版本字符串写入 `MuxiReleaseVersion`；`CFBundleShortVersionString` 使用其数字
 部分，`CFBundleVersion` 使用正整数构建号。打包器拒绝未提交源码、提交不匹配、
 运行库/源码哈希不匹配、非 arm64 主程序或非空输出目录，不覆盖以前的发布物。
-它输出五个应一起上传的文件：
+它输出六个应一起上传的文件：
 
-- `MuxiPlayer-<version>-macOS-arm64.zip`，包含已经验证的 app。
+- `MuxiPlayer-<version>-macOS-arm64.dmg`，包含 `muxi.app`、Applications 快捷入口及安装说明。
+- `MuxiPlayer-<version>-macOS-arm64.zip`，包含同一份已经验证的 app。
 - `MuxiPlayer-<version>-source.tar.gz`，由该提交的 `git archive` 导出。
 - `MuxiPlayer-<version>-dependencies-source.tar.gz`，完整对应依赖源码。
 - `release-manifest.json`，版本、架构、提交和运行库来源。
-- `SHA256SUMS`，以上四个附件的校验值。
+- `SHA256SUMS`，以上五个附件的校验值。
 
-`.github/workflows/swift.yml` 在每次 push/PR 测试、构建并保留这五个文件的
+`.github/workflows/swift.yml` 在每次 push/PR 测试、构建并保留这六个文件的
 Actions artifact；推送 `v*` tag 时创建预发布。已有 Release 一律保持原样，
 不会替换本地原生测试过的 APP。远程 CI 是否成功应以该次 Actions 结果为准。
 

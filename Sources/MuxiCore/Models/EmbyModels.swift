@@ -75,9 +75,18 @@ public struct Authentication: Decodable {
     public var ServerId: String?
 }
 
-public enum EmbyClientIdentity: String, Codable {
-    case muxi = "Muxi Player"
+public enum EmbyClientIdentity: String, Codable, CaseIterable {
     case senPlayer = "SenPlayer"
+    case infuse = "Infuse"
+    case muxi = "Muxi Player"
+
+    public var label: String {
+        switch self {
+        case .infuse: return "Infuse 兼容"
+        case .senPlayer: return "SenPlayer 兼容（默认）"
+        case .muxi: return "muxi 原生标识"
+        }
+    }
 }
 
 public enum MediaServerKind: String, Codable, CaseIterable {
@@ -93,7 +102,7 @@ public struct Connection: Codable {
     public let clientIdentity: EmbyClientIdentity?
     public let serverKind: MediaServerKind?
 
-    public init(baseURL: URL, authentication: Authentication, clientIdentity: EmbyClientIdentity = .muxi, serverKind: MediaServerKind = .emby) {
+    public init(baseURL: URL, authentication: Authentication, clientIdentity: EmbyClientIdentity = .senPlayer, serverKind: MediaServerKind = .emby) {
         self.baseURL = baseURL
         self.clientIdentity = serverKind == .jellyfin ? .muxi : clientIdentity
         self.serverKind = serverKind

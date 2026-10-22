@@ -212,6 +212,24 @@ import Testing
         #expect(EmbyClient(baseURL: old.baseURL, deviceID: "old", connection: old).clientIdentity == .muxi)
     }
 
+    @Test func testNewConnectionsDefaultToCompatibleIdentityWithoutChangingSavedIdentity() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FixtureProtocol.self]
+        let login = EmbyClient(baseURL: base, deviceID: "default-identity", session: URLSession(configuration: config))
+        #expect(login.clientIdentity == .senPlayer)
+        let saved = try await login.authenticate(username: "demo", password: "test-password")
+        #expect(saved.clientIdentity == .senPlayer)
+        for identity in EmbyClientIdentity.allCases {
+            let auth = try decode(Authentication.self, #"{"AccessToken":"fixture-token","User":{"Id":"u","Name":"demo"}}"#)
+            let connection = Connection(baseURL: base, authentication: auth, clientIdentity: identity)
+            let restored = try JSONDecoder().decode(Connection.self, from: JSONEncoder().encode(connection))
+            let client = EmbyClient(baseURL: base, deviceID: "saved-identity", connection: restored)
+            #expect(client.clientIdentity == identity)
+            #expect(try client.request("Users/u/Views").value(forHTTPHeaderField: "Authorization")?.contains("Client=\"\(identity.rawValue)\"") == true)
+        }
+        #expect(EmbyClient(baseURL: base, deviceID: "jellyfin-default", serverKind: .jellyfin).clientIdentity == .muxi)
+    }
+
     @Test func testJellyfinAuthenticationAndCommonLibraryAPI() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [FixtureProtocol.self]
@@ -480,7 +498,7 @@ final class FixtureProtocol: URLProtocol {
         if path.hasSuffix("AuthenticateByName") {
             #expect(request.httpMethod == "POST")
             let authorization = request.value(forHTTPHeaderField: "Authorization")!
-            let expectedClient = jellyfin ? "Muxi%20Player" : authorization.contains("DeviceId=\"compatibility-test\"") ? "SenPlayer" : "Muxi Player"
+            let expectedClient = jellyfin ? "Muxi%20Player" : "SenPlayer"
             #expect(authorization.contains("Client=\"\(expectedClient)\""))
             #expect(request.value(forHTTPHeaderField: "User-Agent") == "MuxiPlayer/0.1.0")
             #expect(request.value(forHTTPHeaderField: "X-Emby-Token") == nil)

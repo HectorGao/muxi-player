@@ -73,5 +73,5 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Existing release preserved, including any locally tested app. CI assets remain in this run."
           else
-            gh release create "$RELEASE_TAG" release/* --verify-tag --prerelease --title "幕汐 $RELEASE_TAG" --notes "Apple Silicon · macOS 14+。此预览版采用 ad-hoc 签名，未经 Apple 公证。APP、对应项目源码、完整依赖源码及 SHA256SUMS 同时提供。"
+            gh release create "$RELEASE_TAG" release/* --verify-tag --prerelease --title "muxi · 幕汐 $RELEASE_TAG" --notes "Apple Silicon · macOS 14+。此预览版采用 ad-hoc 签名，未经 Apple 公证。DMG、APP ZIP、对应项目源码、完整依赖源码及 SHA256SUMS 同时提供。"
           fi

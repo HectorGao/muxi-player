@@ -8,13 +8,14 @@ public final class EmbyClient {
     public let serverKind: MediaServerKind
     private let session: URLSession
 
-    public init(baseURL: URL, deviceID: String, connection: Connection? = nil, clientIdentity: EmbyClientIdentity = .muxi,
+    public init(baseURL: URL, deviceID: String, connection: Connection? = nil, clientIdentity: EmbyClientIdentity = .senPlayer,
                 serverKind: MediaServerKind = .emby, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.deviceID = deviceID
         self.connection = connection
         self.serverKind = connection?.serverKind ?? serverKind
-        self.clientIdentity = self.serverKind == .jellyfin ? .muxi : connection?.clientIdentity ?? clientIdentity
+        // Keep legacy saved sessions on their original identity; only new logins use the default.
+        self.clientIdentity = self.serverKind == .jellyfin ? .muxi : connection.map { $0.clientIdentity ?? .muxi } ?? clientIdentity
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 40
