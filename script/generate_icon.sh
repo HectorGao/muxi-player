@@ -5,7 +5,7 @@ ICONSET=".local/brand/AppIcon.iconset"
 mkdir -p "$ICONSET" Resources
 # Preserve the selected PNG; only resize it into macOS's standard representations.
 while read -r name size; do
-  sips -z "$size" "$size" docs/brand/icon-c.png --out "$ICONSET/$name.png" >/dev/null
+  sips -z "$size" "$size" docs/brand/icon-c-fullbleed.png --out "$ICONSET/$name.png" >/dev/null
 done <<'SIZES'
 icon_16x16 16
 icon_16x16@2x 32

@@ -14,5 +14,14 @@
       "key": "C",
       "prompt": "Use case: logo-brand. Create ONE premium macOS and Windows application icon for muxi, Chinese name 幕汐, an open-source video player and private film library. Direction C: a graphic pair of flowing ivory and pale mint bands creating an abstract m and a small play aperture, over a near-black graphite rounded-square tile. Mostly flat modernist symbol with only a delicate ceramic relief and a narrow emerald accent, no glass rainbow. The flowing mark hints at motion and a curated film collection without literal waves or curtains. Two broad bold ribbons, recognizable at 32px. Straight-on orthographic app icon, centered, square image, tile fills 84% of canvas with generous uniform margin. True transparent background outside the tile. No typography, no labels, no watermark, no mockup, no existing brand logo. Quiet precision and strong identity."
     }
+  ],
+  "edits": [
+    {
+      "key": "C-fullbleed",
+      "date": "2026-10-23",
+      "input": "icon-c.png",
+      "output": "icon-c-fullbleed.png",
+      "prompt": "Preserve the graphite, ivory and mint flowing m and play triangle. Extend the graphite surface to every edge and corner as an opaque square with no external padding, white border or transparent gutter. Keep the mark centered. The OS applies its icon mask."
+    }
   ]
 }

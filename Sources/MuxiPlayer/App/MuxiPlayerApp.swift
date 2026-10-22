@@ -16,7 +16,7 @@ import MuxiCore
                 .frame(minWidth: 960, minHeight: 640)
                 .preferredColorScheme(appearance.colorScheme)
                 .tint(Theme.accent)
-                .task { delegate.playback = playback }
+                .task { delegate.playback = playback; await connection.restore() }
         }
         .defaultSize(width: 1320, height: 900)
         .windowStyle(.hiddenTitleBar)

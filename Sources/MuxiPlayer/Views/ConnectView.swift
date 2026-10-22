@@ -3,6 +3,10 @@ import MuxiCore
 
 struct ConnectView: View {
     @Bindable var connection: ConnectionStore
+    var source: SavedMediaSource? = nil
+    var saved: (() -> Void)? = nil
+    var cancel: (() -> Void)? = nil
+    @ViewState private var name = ""
     @ViewState private var address = ""
     @ViewState private var username = ""
     @ViewState private var password = ""
@@ -18,7 +22,7 @@ struct ConnectView: View {
                     if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
                        let icon = NSImage(contentsOf: url) {
                         Image(nsImage: icon).resizable().interpolation(.high)
-                            .frame(width: 80, height: 80).accessibilityHidden(true)
+                            .frame(width: 80, height: 80).clipShape(RoundedRectangle(cornerRadius: 18)).accessibilityHidden(true)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("muxi").font(.system(size: 64, weight: .semibold, design: .rounded)).tracking(-3)
@@ -40,11 +44,16 @@ struct ConnectView: View {
                     }.padding(.top, 18)
                 }.frame(width: 300, alignment: .leading)
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("连接 \(serverKind.label)").font(.title2.weight(.semibold))
+                    HStack {
+                        Text(source == nil ? "添加媒体源" : "更新媒体源登录").font(.title2.weight(.semibold))
+                        Spacer()
+                        if let cancel { Button("取消", action: cancel).keyboardShortcut(.cancelAction) }
+                    }
                     Text("输入服务器地址和你的 \(serverKind.label) 账号。").foregroundStyle(.secondary)
                     Picker("服务器类型", selection: $serverKind) {
                         ForEach(MediaServerKind.allCases, id: \.self) { kind in Text(kind.label).tag(kind) }
                     }.pickerStyle(.segmented).accessibilityIdentifier("server-kind")
+                    TextField("媒体源名称（可选）", text: $name).accessibilityIdentifier("source-name")
                     VStack(alignment: .leading, spacing: 8) {
                         Text("服务器地址").font(.callout)
                         TextField(serverKind == .emby ? "https://emby.example.com" : "https://jellyfin.example.com", text: $address).focused($focused)
@@ -76,27 +85,40 @@ struct ConnectView: View {
                             .font(.caption).foregroundStyle(Theme.accent)
                     }
                     if let error = connection.error { Text(error).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+                    if !connection.storageReady {
+                        Button("重新读取已保存的媒体源") { Task { await connection.restore() } }
+                    }
                     Button(action: connect) {
-                        HStack { Spacer(); if connection.connecting { ProgressView().controlSize(.small) }; Text(connection.connecting ? "正在连接…" : "连接媒体库"); Spacer() }
+                        HStack { Spacer(); if connection.connecting { ProgressView().controlSize(.small) }; Text(connection.connecting ? "正在保存…" : "保存并连接"); Spacer() }
                             .padding(.vertical, 5)
-                    }.buttonStyle(.borderedProminent).disabled(connection.connecting || address.isEmpty || username.isEmpty)
+                    }.buttonStyle(.borderedProminent).disabled(!connection.storageReady || connection.connecting || address.isEmpty || username.isEmpty)
                         .keyboardShortcut(.defaultAction)
-                    Label("登录令牌保存在 macOS 钥匙串，密码不会保存。", systemImage: "lock.shield")
+                    Label("媒体源与登录令牌保存在 macOS 钥匙串，下次打开自动恢复；不保存密码。", systemImage: "lock.shield")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }.textFieldStyle(.roundedBorder).controlSize(.large).frame(width: 365).disabled(connection.connecting)
                     .padding(26).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
                     .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(Theme.border, lineWidth: 1) }
             }.padding(.horizontal, 48).padding(.vertical, 40).frame(maxWidth: .infinity)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.canvas)
-            .onSubmit(connect).onAppear { focused = true }
+            .onSubmit(connect).onAppear {
+                if let source {
+                    name = source.name; address = source.connection.baseURL.absoluteString
+                    username = source.connection.user.Name
+                    serverKind = source.connection.serverKind ?? .emby
+                    clientIdentity = source.connection.clientIdentity ?? .muxi
+                }
+                focused = source == nil
+            }
             .onChange(of: serverKind) { _, _ in connection.error = nil }
     }
 
     private func connect() {
         guard !connection.connecting, !address.isEmpty, !username.isEmpty else { return }
         Task {
-            await connection.connect(address: address, username: username, password: password, clientIdentity: clientIdentity, serverKind: serverKind)
-            if connection.connection != nil { password = "" }
+            if await connection.connect(address: address, username: username, password: password, name: name, replacing: source?.id,
+                                        clientIdentity: clientIdentity, serverKind: serverKind) {
+                password = ""; saved?()
+            }
         }
     }
 }
@@ -104,7 +126,7 @@ struct ConnectView: View {
 struct SettingsView: View {
     @Bindable var connection: ConnectionStore
     let playback: PlaybackController
-    @ViewState private var disconnecting = false
+    @ViewState private var managingSources = false
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("ambientMotion") private var ambientMotion = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -123,23 +145,18 @@ struct SettingsView: View {
                 Text(reduceMotion ? "系统已开启“减少动态效果”，背景保持静止。" : "播放时背景保持静止，并遵循系统“减少动态效果”设置。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if let current = connection.connection {
-                Section("当前连接") {
-                    LabeledContent("类型", value: (current.serverKind ?? .emby).label)
-                    LabeledContent("服务器", value: current.baseURL.absoluteString)
-                    LabeledContent("账号", value: current.user.Name)
-                    LabeledContent("客户端标识", value: (current.serverKind == .jellyfin ? EmbyClientIdentity.muxi : current.clientIdentity ?? .muxi).rawValue)
-                    Button(disconnecting ? "正在断开…" : "断开连接并移除本机登录", role: .destructive) {
-                        disconnecting = true
-                        Task { await playback.stop(); await connection.disconnect(); disconnecting = false }
-                    }.disabled(disconnecting)
-                }
+            Section("媒体源") {
+                LabeledContent("已保存", value: "\(connection.sources.count) 个媒体源")
+                Button("管理媒体源") { managingSources = true }
+                Text("首次连接后自动保存。可同时添加多个 Emby / Jellyfin，并从全部媒体源浏览与搜索。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if let error = connection.error { Text(error).foregroundStyle(.red) }
             Section("播放兼容性") {
                 Text("libmpv 在本机播放并切换音轨、字幕；降低分辨率或码率仍需服务器允许转码。")
-                Text("当前支持一个已保存的 Emby 或 Jellyfin 连接。连接新的服务器前请先断开。")
+
             }.foregroundStyle(.secondary)
         }.formStyle(.grouped).frame(width: 540, height: 560)
+            .sheet(isPresented: $managingSources) { SourceManagerView(connection: connection, playback: playback) }
     }
 }
