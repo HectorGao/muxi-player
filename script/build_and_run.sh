@@ -50,6 +50,8 @@ CONFIGURATION="release"
 swift build -c "$CONFIGURATION"
 BUILD_BINARY="$(swift build -c "$CONFIGURATION" --show-bin-path)/$APP_NAME"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
+mkdir -p "$APP_BUNDLE/Contents/Resources"
+cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$BUILD_BINARY" "$APP_BUNDLE/Contents/MacOS/$APP_NAME.next"
 mv "$APP_BUNDLE/Contents/MacOS/$APP_NAME.next" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 python3 - "$APP_BUNDLE/Contents/Info.plist" "$VERSION" "$BUILD_NUMBER" <<'PY'
@@ -57,6 +59,7 @@ import plistlib, subprocess, sys
 info = {
     'CFBundleExecutable': 'MuxiPlayer', 'CFBundleIdentifier': 'com.hectorgao.muxi-player',
     'CFBundleName': 'muxi', 'CFBundleDisplayName': 'muxi', 'CFBundlePackageType': 'APPL',
+    'CFBundleIconFile': 'AppIcon',
     'CFBundleShortVersionString': sys.argv[2].split('-')[0], 'CFBundleVersion': sys.argv[3],
     'MuxiReleaseVersion': sys.argv[2],
     'MuxiBuildCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),

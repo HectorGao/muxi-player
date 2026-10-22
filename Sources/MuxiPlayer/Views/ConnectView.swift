@@ -15,7 +15,11 @@ struct ConnectView: View {
         ScrollView {
             HStack(spacing: 70) {
                 VStack(alignment: .leading, spacing: 22) {
-                    Image(systemName: "play.rectangle").font(.system(size: 52, weight: .ultraLight)).foregroundStyle(Theme.accent)
+                    if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+                       let icon = NSImage(contentsOf: url) {
+                        Image(nsImage: icon).resizable().interpolation(.high)
+                            .frame(width: 80, height: 80).accessibilityHidden(true)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("muxi").font(.system(size: 64, weight: .semibold, design: .rounded)).tracking(-3)
                         Text("幕汐").font(.title3).tracking(6).foregroundStyle(.secondary)

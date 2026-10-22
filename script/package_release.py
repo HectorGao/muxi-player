@@ -36,7 +36,7 @@ def package(app: Path, materials: Path, output: Path, version: str) -> None:
     commit = run("git", "rev-parse", "HEAD")
     if run("git", "status", "--porcelain", "--untracked-files=no"):
         raise RuntimeError("Commit the reviewed release sources before packaging")
-    relevant = ("Sources/", "Tests/", "script/", "docs/", "ThirdParty/", ".github/",
+    relevant = ("Sources/", "Tests/", "Resources/", "script/", "docs/", "ThirdParty/", ".github/",
                 "Package.swift", "README.md", "LICENSE")
     if any(path.startswith(relevant) for path in run("git", "ls-files", "--others", "--exclude-standard").splitlines()):
         raise RuntimeError("Untracked release source files must be reviewed and committed first")
@@ -46,6 +46,9 @@ def package(app: Path, materials: Path, output: Path, version: str) -> None:
         raise RuntimeError("App version differs from requested release version")
     if info.get("MuxiBuildCommit") != commit:
         raise RuntimeError("Rebuild the app from the final release commit before packaging")
+    icon = app / "Contents/Resources/AppIcon.icns"
+    if info.get("CFBundleIconFile") != "AppIcon" or sha256(icon) != sha256(ROOT / "Resources/AppIcon.icns"):
+        raise RuntimeError("App icon differs from the approved brand asset")
     executable = app / "Contents/MacOS/MuxiPlayer"
     architectures = run("lipo", "-archs", str(executable)).split()
     if architectures != ["arm64"]:

@@ -4,9 +4,9 @@
 
 muxi 是面向 macOS 与 Windows 的免费开源视频播放器与私人影视库项目。**当前可下载版本为 macOS；Windows 版尚在规划，暂不提供安装包。** 当前采用 SwiftUI + libmpv（IINA 同样使用 mpv），在应用内解码，直接连接自己的 Emby / Jellyfin 服务器，没有订阅、广告、遥测或第三方账号。幕汐原创代码采用 MIT；随应用打包的播放运行库另有 GPL 等许可要求，见下方许可证说明。
 
-英文名统一使用小写 **muxi**，下方中文名为 **幕汐**。mux 呼应音视频封装。后续功能和平台交付标准见 [更新路线图](docs/ROADMAP.md)，图标候选见 [品牌图标](docs/brand/README.md)。
+英文名统一使用小写 **muxi**，下方中文名为 **幕汐**。mux 呼应音视频封装。后续功能和平台交付标准见 [更新路线图](docs/ROADMAP.md)，正式图标采用 [C · 石墨薄荷](docs/brand/README.md)。
 
-> 当前是 [v0.1.0-alpha.3 预览版](https://github.com/HectorGao/muxi-player/releases/tag/v0.1.0-alpha.3)。真实 Emby 播放已做本机验证；Jellyfin 已接入官方接口并通过协议测试替身检查，尚未用真实 Jellyfin 实例验收。兼容性仍需在不同服务器及媒体格式上验证，不是 Infuse / SenPlayer 的完整替代品。
+> 当前是 [v0.1.0-alpha.4 预览版](https://github.com/HectorGao/muxi-player/releases/tag/v0.1.0-alpha.4)。真实 Emby 播放已做本机验证；Jellyfin 已接入官方接口并通过协议测试替身检查，尚未用真实 Jellyfin 实例验收。兼容性仍需在不同服务器及媒体格式上验证，不是 Infuse / SenPlayer 的完整替代品。
 
 ## 已实现
 
