@@ -16,6 +16,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable {
     public var BackdropImageTags: [String]?
     public var UserData: UserData?
     public var IsFolder: Bool?
+    public var Genres: [String]?
+    public var ProductionLocations: [String]?
+    public var DateCreated: String?
+    public var SortName: String?
+    public var OriginalTitle: String?
 
     public var id: String { Id }
     public var isContainer: Bool { IsFolder == true || ["Series", "Season", "CollectionFolder", "BoxSet", "Folder"].contains(Type ?? "") }
@@ -46,6 +51,10 @@ public struct UserData: Decodable, Hashable {
 public struct ItemPage: Decodable {
     public let Items: [MediaItem]
     public var TotalRecordCount: Int?
+    public init(Items: [MediaItem], TotalRecordCount: Int?) {
+        self.Items = Items
+        self.TotalRecordCount = TotalRecordCount
+    }
 }
 
 public struct EmbyUser: Codable {
@@ -117,6 +126,10 @@ public struct MediaSource: Decodable, Identifiable {
     public var RunTimeTicks: Int64?
     public var RequiresOpening: Bool?
     public var id: String { Id }
+    public var playbackLabel: String {
+        [Name ?? Id, MediaStreams?.first { $0.Type == "Video" }?.Height.map { "\($0)p" },
+         Bitrate.map { String(format: "%.1f Mbps", Double($0) / 1_000_000) }].compactMap { $0 }.joined(separator: " · ")
+    }
 }
 
 public struct MediaStream: Decodable, Identifiable {

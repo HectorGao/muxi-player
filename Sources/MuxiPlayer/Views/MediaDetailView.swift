@@ -27,7 +27,7 @@ struct MediaDetailView: View {
                     if detecting { ProgressView("正在识别片源、编码和轨道…").font(.caption) }
                     if !sources.isEmpty {
                         Picker("片源版本", selection: $selectedSource) {
-                            ForEach(sources) { source in Text(source.Name ?? source.Id).tag(Optional(source.Id)) }
+                            ForEach(sources) { source in Text(source.playbackLabel).tag(Optional(source.Id)) }
                         }
                         if let source = sources.first(where: { $0.Id == selectedSource }) {
                             let streams = source.MediaStreams ?? []

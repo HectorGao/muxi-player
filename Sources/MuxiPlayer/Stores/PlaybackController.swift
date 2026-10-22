@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import MuxiCore
+import CryptoKit
 
 @MainActor @Observable final class PlaybackController {
     @ObservationIgnored let engine: MPVEngine?
@@ -16,6 +17,8 @@ import MuxiCore
     var buffering = false
     var networkBytesPerSecond: Double = 0
     var bufferedSeconds: Double = 0
+    var decoding = "正在识别"
+    var droppedFrames = 0
     var position: Double = 0
     var duration: Double = 0
     var speed: Float = 1
@@ -31,16 +34,19 @@ import MuxiCore
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var started = false
     @ObservationIgnored private var pendingPause: Bool?
+    @ObservationIgnored private var pendingSeek: Double?
     @ObservationIgnored private var lastReport = Date.distantPast
     @ObservationIgnored private var reportingProgress = false
     @ObservationIgnored private var externalIndices: [Int: Int] = [:]
     @ObservationIgnored private var pendingExternalIndex: Int?
     @ObservationIgnored private var previousExternalIDs: Set<Int> = []
+    @ObservationIgnored private let resumeDefaults: UserDefaults
 
-    init(headless: Bool = false) {
+    init(headless: Bool = false, resumeDefaults: UserDefaults = .standard) {
+        self.resumeDefaults = resumeDefaults
         do { engine = try MPVEngine(headless: headless) }
         catch { engine = nil; self.error = error.localizedDescription }
-        engine?.onWarning = { [weak self] message in self?.pendingExternalIndex = nil; self?.syncError = message }
+        engine?.onWarning = { [weak self] message in self?.pendingExternalIndex = nil; self?.pendingSeek = nil; self?.syncError = message }
         engine?.onLoaded = { [weak self] in self?.didLoad() }
         engine?.onUpdate = { [weak self] in self?.updateTime() }
         engine?.onTracks = { [weak self] in self?.updateTracks() }
@@ -70,7 +76,8 @@ import MuxiCore
         sources = []
         self.queue = queue
         settings = PlaybackSettings()
-        load(item: item, client: client, seconds: fromStart ? 0 : Double(item.resumeTicks) / 10_000_000, sourceID: sourceID)
+        let pending = resumeDefaults.object(forKey: resumeKey(item: item, client: client)) as? Double
+        load(item: item, client: client, seconds: fromStart ? 0 : pending ?? Double(item.resumeTicks) / 10_000_000, sourceID: sourceID)
     }
 
     func changeSettings(_ value: PlaybackSettings) {
@@ -203,10 +210,13 @@ import MuxiCore
     }
     private func updateTime() {
         guard started, let engine else { return }
-        position = engine.position
+        if let pendingSeek, abs(engine.position - pendingSeek) < 1 { self.pendingSeek = nil }
+        position = pendingSeek ?? engine.position
         buffering = engine.string("paused-for-cache") == "yes"
         networkBytesPerSecond = engine.number("cache-speed") ?? 0
         bufferedSeconds = engine.number("demuxer-cache-duration") ?? 0
+        decoding = engine.string("hwdec-current").map { $0 == "no" ? "软件解码" : "硬件解码 · " + $0 } ?? "正在识别"
+        droppedFrames = Int((engine.number("decoder-frame-drop-count") ?? 0) + (engine.number("frame-drop-count") ?? 0))
         if engine.duration > 0 { duration = engine.duration }
         if let pendingPause, engine.paused == pendingPause { self.pendingPause = nil }
         isPlaying = !(pendingPause ?? engine.paused) && engine.string("eof-reached") != "yes"
@@ -223,7 +233,7 @@ import MuxiCore
     func seek(to seconds: Double) {
         guard !loading, started, seconds.isFinite else { return }
         let destination = min(max(0, seconds), max(0, duration))
-        engine?.seek(destination); position = destination
+        pendingSeek = destination; engine?.seek(destination); position = destination
         enqueueReport("Progress")
     }
     func setSpeed(_ value: Float) { speed = value; engine?.set("speed", String(value)) }
@@ -232,14 +242,19 @@ import MuxiCore
         guard let item, let plan, let client, started else { return }
         if event == "Progress" { guard !reportingProgress else { return }; reportingProgress = true }
         let ticks = PlaybackTime.ticks(position), paused = pendingPause ?? engine?.paused ?? true
+        let resumeKey = resumeKey(item: item, client: client), seconds = Double(ticks) / 10_000_000
+        resumeDefaults.set(seconds, forKey: resumeKey)
         let settings = settings, previous = reportTask
         lastReport = Date()
         reportTask = Task { [weak self] in
             await previous?.value
             do {
                 try await client.report(event, itemID: item.id, plan: plan, ticks: ticks, paused: paused, settings: settings)
+                if self?.resumeDefaults.object(forKey: resumeKey) as? Double == seconds {
+                    self?.resumeDefaults.removeObject(forKey: resumeKey)
+                }
                 self?.syncError = nil
-            } catch { self?.syncError = "观看进度暂未同步：" + EmbyError.message(error) }
+            } catch { self?.syncError = "进度已保存在本机，暂未同步：" + EmbyError.message(error) }
             if event == "Progress" { self?.reportingProgress = false }
             if event == "Stopped", plan.method != "DirectPlay" {
                 do { try await client.stopTranscoding(sessionID: plan.sessionID) }
@@ -252,15 +267,22 @@ import MuxiCore
         timeoutTask?.cancel(); timeoutTask = nil
         generation = UUID()
         if started {
-            position = engine?.position ?? position
+            position = pendingSeek ?? engine?.position ?? position
             enqueueReport("Stopped")
         } else if let plan, let client, plan.method != "DirectPlay" {
             let previous = reportTask
             reportTask = Task { await previous?.value; try? await client.stopTranscoding(sessionID: plan.sessionID) }
         }
-        started = false; pendingPause = nil; engine?.stop()
+        started = false; pendingPause = nil; pendingSeek = nil; engine?.stop()
         if clearPlan { plan = nil; mpvTracks = []; externalIndices = [:]; pendingExternalIndex = nil }
         isPlaying = false; loading = false; buffering = false
+        networkBytesPerSecond = 0; bufferedSeconds = 0; droppedFrames = 0; decoding = "正在识别"
     }
-    func stop() async { stopCurrent(); item = nil; revision += 1; await reportTask?.value }
+    func endPlayback() { stopCurrent(); item = nil; sources = []; queue = []; revision += 1 }
+    func stop() async { endPlayback(); await reportTask?.value }
+
+    private func resumeKey(item: MediaItem, client: EmbyClient) -> String {
+        let identity = [client.baseURL.absoluteString, client.connection?.user.Id ?? "", item.id].joined(separator: "\n")
+        return "pendingResume." + SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
 }

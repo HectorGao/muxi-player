@@ -24,9 +24,65 @@ struct LibraryShelf {
     var totalCount: Int?
     var path: [MediaItem] = []
     var refreshID = UUID()
+    var filter = LibraryFilter()
+    var filterIndex: [MediaItem]?
+    var indexing = false
+    var indexedCount = 0
+    var indexError: String?
+    @ObservationIgnored private var indexScope: String?
+    @ObservationIgnored private var indexGeneration = UUID()
     private var favoriteValues: [String: Bool] = [:]
     @ObservationIgnored private var currentSelection = "home"
     @ObservationIgnored private var shelfRequests: [String: UUID] = [:]
+
+    func invalidateIndex() {
+        indexGeneration = UUID()
+        filterIndex = nil; indexScope = nil; indexing = false; indexedCount = 0; indexError = nil
+    }
+
+    func resetBrowsing() { filter = LibraryFilter(); invalidateIndex() }
+
+    static func canFilter(_ selection: String) -> Bool {
+        selection == "movies" || selection == "series" || selection.hasPrefix("library:")
+    }
+
+    // Country filtering is not shared by the two server APIs; index metadata, never video files.
+    func prepareFilters(client: EmbyClient, selection: String) async {
+        guard Self.canFilter(selection) else { return }
+        if indexScope == selection, filterIndex != nil { return }
+        let token = UUID()
+        indexGeneration = token; indexScope = selection
+        indexing = true; indexedCount = 0; indexError = nil; filterIndex = nil
+        defer { if indexGeneration == token { indexing = false } }
+        do {
+            var collected: [MediaItem] = []
+            var known = Set<String>()
+            var offset = 0
+            while true {
+                try Task.checkCancellation()
+                let page = try await client.items(parent: selection.hasPrefix("library:") ? String(selection.dropFirst(8)) : nil,
+                                                  type: selection == "movies" ? "Movie" : selection == "series" ? "Series" : "Movie,Series,BoxSet",
+                                                  start: offset, limit: 500, sortBy: "SortName", metadataOnly: true)
+                guard indexGeneration == token, !Task.isCancelled else { return }
+                let fresh = page.Items.filter { known.insert($0.id).inserted }
+                collected.append(contentsOf: fresh)
+                offset += page.Items.count
+                indexedCount = collected.count
+                if let total = page.TotalRecordCount, offset >= total {
+                    guard collected.count >= total else { throw EmbyError.invalidResponse }
+                    break
+                }
+                if page.Items.isEmpty {
+                    guard page.TotalRecordCount == nil else { throw EmbyError.invalidResponse }
+                    break
+                }
+                guard !fresh.isEmpty else { throw EmbyError.invalidResponse }
+            }
+            filterIndex = collected
+        } catch {
+            if indexGeneration == token, !Task.isCancelled { indexError = "筛选信息读取失败，请重试：" + EmbyError.message(error) }
+        }
+    }
 
     func refresh(client: EmbyClient, selection: String, search: String) async {
         let token = UUID()
@@ -144,13 +200,23 @@ struct LibraryShelf {
     }
 
     private func fetch(client: EmbyClient, selection: String, search: String, start: Int) async throws -> ItemPage {
+        if Self.canFilter(selection), path.isEmpty {
+            let requested = filter
+            if requested.isActive {
+                if filterIndex == nil || indexScope != selection { await prepareFilters(client: client, selection: selection) }
+                try Task.checkCancellation()
+                guard let filterIndex, indexScope == selection else { throw EmbyError.invalidResponse }
+                let matches = requested.apply(to: filterIndex, search: search)
+                return ItemPage(Items: Array(matches.dropFirst(start).prefix(60)), TotalRecordCount: matches.count)
+            }
+            return try await client.items(parent: selection.hasPrefix("library:") ? String(selection.dropFirst(8)) : nil,
+                                          type: selection == "movies" ? "Movie" : selection == "series" ? "Series" : "Movie,Series,BoxSet",
+                                          search: search, start: start, sortBy: requested.sort.field, descending: requested.sort.descending)
+        }
         if !search.isEmpty {
             return try await client.items(type: "Movie,Series,Episode,BoxSet", search: search, start: start, favoritesOnly: selection == "favorites")
         }
         if let parent = path.last { return try await client.items(parent: parent.id, start: start, recursive: false) }
-        if selection.hasPrefix("library:") {
-            return try await client.items(parent: String(selection.dropFirst(8)), type: "Movie,Series,BoxSet", start: start, sortBy: "DateCreated", descending: true)
-        }
         if selection == "favorites" { return try await client.items(type: "Movie,Series,Episode,BoxSet", start: start, favoritesOnly: true) }
         if selection == "recommendations" {
             return try await client.items(type: "Movie,Series", start: start, sortBy: "CommunityRating,DateCreated", descending: true, unplayedOnly: true)

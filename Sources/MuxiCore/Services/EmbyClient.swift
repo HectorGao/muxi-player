@@ -92,9 +92,9 @@ public final class EmbyClient {
 
     public func items(parent: String? = nil, type: String? = nil, search: String = "", start: Int = 0, recursive: Bool = true,
                       limit: Int = 60, sortBy: String? = nil, descending: Bool = false,
-                      favoritesOnly: Bool = false, unplayedOnly: Bool = false) async throws -> ItemPage {
+                      favoritesOnly: Bool = false, unplayedOnly: Bool = false, metadataOnly: Bool = false) async throws -> ItemPage {
         var query: [URLQueryItem] = [
-            .init(name: "Fields", value: "Overview,PrimaryImageAspectRatio,ProductionYear,CommunityRating"), .init(name: "EnableUserData", value: "true"),
+            .init(name: "Fields", value: metadataOnly ? "Genres,ProductionLocations,ProductionYear,CommunityRating,DateCreated,SortName,OriginalTitle" : "Overview,PrimaryImageAspectRatio,ProductionYear,CommunityRating"), .init(name: "EnableUserData", value: "true"),
             .init(name: "EnableImages", value: "true"), .init(name: "ImageTypeLimit", value: "1"),
             .init(name: "StartIndex", value: String(start)), .init(name: "Limit", value: String(limit)),
             .init(name: "Recursive", value: String(recursive)),

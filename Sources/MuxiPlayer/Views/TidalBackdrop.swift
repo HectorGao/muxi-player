@@ -29,8 +29,8 @@ struct TidalBackdrop: View {
                         .opacity(colorScheme == .dark ? 0.46 : 0.34)
                     // Only the whole-wall transform changes; poster identities and image tasks stay stable.
                     TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: !moving)) { context in
-                        let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 80) / 80
-                        wall.offset(x: moving ? sin(phase * .pi * 2) * 48 : 0)
+                        let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 48) / 48
+                        wall.offset(x: moving ? sin(phase * .pi * 2) * 64 : 0)
                     }
                 }
                 LinearGradient(colors: [Theme.canvas.opacity(0.12), Theme.canvas.opacity(0.42), Theme.canvas.opacity(0.82)],

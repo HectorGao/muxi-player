@@ -45,7 +45,7 @@ struct MPVTrack: Identifiable {
         }
         if headless { mpv_set_option_string(handle, "ao", "null") }
         guard mpv_initialize(handle) >= 0 else { throw EngineError("libmpv 初始化失败。") }
-        for name in ["time-pos", "duration", "pause", "speed", "aid", "sid", "video-params/h", "eof-reached", "paused-for-cache", "idle-active", "cache-speed", "demuxer-cache-duration"] {
+        for name in ["time-pos", "duration", "pause", "speed", "aid", "sid", "video-params/h", "eof-reached", "paused-for-cache", "idle-active", "cache-speed", "demuxer-cache-duration", "hwdec-current", "decoder-frame-drop-count", "frame-drop-count"] {
             mpv_observe_property(handle, 0, name, MPV_FORMAT_STRING)
         }
         mpv_observe_property(handle, 0, "track-list", MPV_FORMAT_NODE)

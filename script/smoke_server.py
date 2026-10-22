@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
 import threading
+import time
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
@@ -25,6 +26,8 @@ def media(item_id="movie"):
     position = POSITIONS.get(item_id, 120_000_000 if item_id in ("movie", "mkv") or kind == "Episode" else 0)
     return {"Id": item_id, "Name": name, "Type": kind, "IsFolder": kind in ("Series", "Season"),
             "RunTimeTicks": 900_000_000, "ProductionYear": 2026, "Overview": "本机生成的测试视频，用于验证真实解码、双音轨、字幕、画质切换和进度同步。不是远程 Emby 内容。",
+            "Genres": ["动画" if wall_index is not None and wall_index % 2 else "剧情"],
+            "ProductionLocations": ["日本" if wall_index is not None and wall_index % 2 else "中国"] if wall_index != 67 else [],
             "CommunityRating": 10.0 if wall_index == 0 else round(6 + ((wall_index or 0) % 30) / 10, 1),
             "DateCreated": f"2026-10-{(wall_index or 0) % 28 + 1:02d}T10:00:00Z",
             "UserData": {"PlaybackPositionTicks": position, "PlayedPercentage": position / 9_000_000,
@@ -40,7 +43,7 @@ def library_items(query):
         items = [media("episode")]
     elif parent == "series":
         items = [media("show")]
-    elif parent == "films":
+    elif parent in ("films", "broken"):
         items = movies
     else:
         items = movies + [media("show"), media("episode")]
@@ -59,7 +62,10 @@ def library_items(query):
                reverse=query.get("SortOrder") == ["Descending"])
     total = len(items)
     start = max(0, int(query.get("StartIndex", ["0"])[0]))
-    limit = max(0, int(query.get("Limit", ["60"])[0]))
+    if parent == "broken":
+        start = 0
+    # Deliberately cap index pages to verify clients handle server-imposed page sizes.
+    limit = min(60, max(0, int(query.get("Limit", ["60"])[0])))
     return {"Items": items[start:start + limit], "TotalRecordCount": total}
 
 
@@ -174,6 +180,8 @@ class Handler(BaseHTTPRequestHandler):
                                          "isPlayback": body.get("IsPlayback", True), "item": item_id})
             return self.respond({"PlaySessionId": uuid.uuid4().hex, "MediaSources": [selected_source]})
         if path.startswith("/Sessions/Playing"):
+            if 'DeviceId="report-failure"' in self.headers.get("Authorization", ""):
+                return self.respond({}, 503)
             POSITIONS[body["ItemId"]] = body["PositionTicks"]
             self.record(path, {key: body.get(key) for key in ["PositionTicks", "PlaySessionId", "IsPaused", "PlayMethod", "AudioStreamIndex", "SubtitleStreamIndex"]})
         return self.respond({})
@@ -182,7 +190,7 @@ class Handler(BaseHTTPRequestHandler):
         path, query = self.parsed()
         if path.startswith("/media/") or path.startswith("/Videos/"):
             relative = ("source.mkv" if path.split("/")[2] == "mkv" else "source.mp4") if path.startswith("/Videos/") else path.removeprefix("/media/")
-            return self.send_file(relative)
+            return self.send_file(relative, slow=path.startswith("/Videos/slow/"))
         if not self.authorized(query):
             return self.respond({}, 401)
         if path.endswith("/Views"):
@@ -209,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
         self.record(path, {"PlaySessionId": query.get("PlaySessionId", [None])[0]})
         self.respond({})
 
-    def send_file(self, relative):
+    def send_file(self, relative, slow=False):
         file = (ROOT / relative).resolve()
         if not file.is_relative_to(ROOT.resolve()) or not file.is_file():
             return self.respond({}, 404)
@@ -226,6 +234,7 @@ class Handler(BaseHTTPRequestHandler):
         if partial:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
+        sent = 0
         try:
             with file.open("rb") as stream:
                 stream.seek(start)
@@ -235,9 +244,15 @@ class Handler(BaseHTTPRequestHandler):
                     if not data:
                         break
                     self.wfile.write(data)
+                    sent += len(data)
                     remaining -= len(data)
+                    if slow:
+                        time.sleep(0.03)
         except (BrokenPipeError, ConnectionResetError):
             pass
+        finally:
+            if slow:
+                self.record("StreamClosed", {"bytes": sent, "complete": sent == end - start + 1})
 
     def record(self, event, values):
         with LOCK, (ROOT / "events.jsonl").open("a") as stream:

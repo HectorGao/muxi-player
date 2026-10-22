@@ -12,6 +12,8 @@ struct LibraryView: View {
     let navigate: (String) -> Void
     let more: () -> Void
     let retry: () -> Void
+    @ViewState private var showingFilters = false
+    private var filtering: Bool { library.path.isEmpty && LibraryStore.canFilter(selection) && library.filter.isActive }
 
     var body: some View {
         ScrollView {
@@ -29,6 +31,7 @@ struct LibraryView: View {
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
+                if LibraryStore.canFilter(selection), library.path.isEmpty { browseControls }
                 if let error = library.error { errorNotice(error, retry: retry) }
                 if let error = library.favoriteError {
                     errorNotice(error) { library.favoriteError = nil }
@@ -40,9 +43,9 @@ struct LibraryView: View {
                 } else if selection == "search", !searching, library.path.isEmpty {
                     ContentUnavailableView("搜索你的媒体库", systemImage: "magnifyingglass", description: Text("在上方输入片名、剧名或关键词。"))
                 } else if library.items.isEmpty, library.error == nil {
-                    ContentUnavailableView(searching ? "没有找到影片" : selection == "favorites" ? "把喜欢的影片留在这里" : "这里还没有影片",
+                    ContentUnavailableView(searching || filtering ? "没有找到影片" : selection == "favorites" ? "把喜欢的影片留在这里" : "这里还没有影片",
                                            systemImage: searching ? "magnifyingglass" : selection == "favorites" ? "heart" : "film",
-                                           description: Text(searching ? "试试其他片名或关键词。" : selection == "favorites" ? "点击海报或详情中的爱心，收藏会同步到服务器。" : "请检查媒体库和账号访问权限。"))
+                                           description: Text(filtering ? "试试调整年份、类型、国家或观看状态。" : searching ? "试试其他片名或关键词。" : selection == "favorites" ? "点击海报或详情中的爱心，收藏会同步到服务器。" : "请检查媒体库和账号访问权限。"))
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 145, maximum: 185), spacing: 20)], alignment: .leading, spacing: 26) {
                         ForEach(library.items) { item in card(item) }
@@ -52,6 +55,64 @@ struct LibraryView: View {
                     HStack { Spacer(); Button(library.loadingMore ? "正在加载…" : "加载更多", action: more).disabled(library.loadingMore); Spacer() }.padding()
                 }
             }.padding(30)
+        }
+    }
+
+    private var browseControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 16) {
+                Picker("排序", selection: $library.filter.sort) {
+                    ForEach(LibrarySort.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.frame(width: 205)
+                Button { showingFilters.toggle() } label: {
+                    Label(library.filter.isActive ? "筛选 · 已启用" : "筛选", systemImage: "line.3.horizontal.decrease")
+                }.tint(library.filter.isActive ? Theme.accent : nil)
+                if library.filter.isActive {
+                    Button("清除筛选") {
+                        let sort = library.filter.sort
+                        library.filter = LibraryFilter(); library.filter.sort = sort
+                    }
+                }
+                Spacer()
+            }
+            if showingFilters {
+                VStack(alignment: .leading, spacing: 14) {
+                    if library.indexing {
+                        HStack { ProgressView().controlSize(.small); Text("正在整理整个分类的筛选信息… 已读取 \(library.indexedCount) 项") }
+                            .font(.callout)
+                    } else if let error = library.indexError {
+                        errorNotice(error) { Task { await library.prepareFilters(client: client, selection: selection) } }
+                    } else if let index = library.filterIndex {
+                        HStack(spacing: 16) {
+                            Picker("年份", selection: $library.filter.year) {
+                                Text("全部年份").tag(Int?.none)
+                                ForEach(Array(Set(index.compactMap(\.ProductionYear))).sorted(by: >), id: \.self) { Text(String($0)).tag(Optional($0)) }
+                            }
+                            Picker("类型", selection: $library.filter.genre) {
+                                Text("全部类型").tag(String?.none)
+                                ForEach(Array(Set(index.flatMap { $0.Genres ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
+                            }
+                        }
+                        HStack(spacing: 16) {
+                            Picker("国家 / 地区", selection: $library.filter.country) {
+                                Text("全部国家 / 地区").tag(String?.none)
+                                ForEach(Array(Set(index.flatMap { $0.ProductionLocations ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
+                                if index.contains(where: { ($0.ProductionLocations ?? []).isEmpty }) { Text("未标注").tag(Optional("")) }
+                            }
+                            Picker("观看状态", selection: $library.filter.played) {
+                                Text("全部").tag(Bool?.none)
+                                Text("未观看").tag(Optional(false))
+                                Text("已观看").tag(Optional(true))
+                            }
+                        }
+                        Text("已整理 \(index.count) 项。按服务器提供的年份、类型与国家筛选；缺失信息列为未标注，不推测影片产地。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button("重新读取筛选信息") { Task { await library.prepareFilters(client: client, selection: selection) } }
+                    }
+                }.padding(18).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .task { await library.prepareFilters(client: client, selection: selection) }
+            }
         }
     }
 

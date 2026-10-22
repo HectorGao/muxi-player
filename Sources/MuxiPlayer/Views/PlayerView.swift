@@ -4,6 +4,7 @@ import MuxiCore
 struct PlayerView: View {
     @Bindable var playback: PlaybackController
     @Bindable var window: PlayerWindow
+    let exit: () -> Void
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @ViewState private var scrubbing = false
     @ViewState private var seekPosition = 0.0
@@ -32,6 +33,8 @@ struct PlayerView: View {
                             if playback.buffering {
                                 Text(String(format: "接收 %.1f Mbps · 已缓冲约 %.1f 秒", playback.networkBytesPerSecond * 8 / 1_000_000, playback.bufferedSeconds))
                                     .font(.caption).foregroundStyle(.secondary)
+                                Text(playback.canConvertVideo ? "可调低码率，或选择较小片源版本。" : "此源未开放转码。请选择较小版本，或暂停等待缓冲；本机降画质无法减少下载带宽。")
+                                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: 360).multilineTextAlignment(.center)
                             }
                         }
                             .padding(25).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
@@ -58,6 +61,15 @@ struct PlayerView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { window.toggleFullScreen() }
+                    .overlay(alignment: .topLeading) {
+                        Button(action: exit) { Label("退出播放", systemImage: "xmark").padding(10) }
+                            .buttonStyle(.plain).background(.regularMaterial, in: Capsule())
+                            .environment(\.colorScheme, .dark).padding(20)
+                            .help("停止下载并保存进度，返回媒体库（⌘.）")
+                            .opacity(!window.isImmersive || showControls ? 1 : 0)
+                            .allowsHitTesting(!window.isImmersive || showControls)
+                            .accessibilityHidden(window.isImmersive && !showControls)
+                    }
                     .overlay(alignment: .bottom) {
                         if window.isImmersive {
                             transport
@@ -165,7 +177,7 @@ struct PlayerView: View {
             HStack(spacing: 20) {
                 optionMenu("版本", value: playback.plan?.source.Name ?? "自动选择") {
                     ForEach(playback.sources) { source in
-                        choice(source.Name ?? source.Id, selected: source.Id == playback.plan?.source.Id) { playback.selectSource(source.Id) }
+                        choice(source.playbackLabel, selected: source.Id == playback.plan?.source.Id) { playback.selectSource(source.Id) }
                     }
                 }.frame(maxWidth: 420).disabled(playback.loading || playback.sources.isEmpty)
                 Text(sourceDescription).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -207,13 +219,18 @@ struct PlayerView: View {
             }.disabled(playback.loading || playback.plan == nil)
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "info.circle")
-                Text(playback.syncError ?? (playback.canConvertVideo ? "音轨与字幕在本机切换。分辨率和码率为服务器转换上限，调整后从当前位置继续。" : "音轨与字幕在本机解码。此账号未开放视频转码；可选择已有片源版本，画质保持原始。"))
+                Text(playback.syncError ?? (playback.canConvertVideo ? "低带宽时可降低码率与分辨率，由服务器转换后传输；切换画质或片源版本会保留位置。" : "此账号未开放转码。低带宽请选较小片源版本，或暂停等待缓冲；本机降画质不能减少原片下载量。"))
                 Spacer(minLength: 0)
                 if let plan = playback.plan {
                     Text(plan.method == "DirectPlay" ? "直接播放" : plan.method == "DirectStream" ? "转封装" : "服务器转码")
                         .foregroundStyle(Theme.accent)
                 }
             }.font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if playback.plan != nil, !playback.loading {
+                Text(String(format: "接收 %.1f Mbps · 缓存 %.1f 秒 · %@ · 累计丢帧 %d", playback.networkBytesPerSecond * 8 / 1_000_000, playback.bufferedSeconds, playback.decoding, playback.droppedFrames))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .help("缓存耗尽时需等待网络；丢帧还可能来自解码、渲染或跳转，不能单凭累计数判断网络速度。")
+            }
         }.padding(.horizontal, 26).padding(.top, 24).padding(.bottom, 28).background(Theme.surface)
     }
 

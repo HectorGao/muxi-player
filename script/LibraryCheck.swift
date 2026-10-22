@@ -77,6 +77,43 @@ import MuxiCore
         try check(store.items.isEmpty && !store.loading, "\(kind.label): empty search must not fetch entire catalog")
         print("PASS: \(kind.label) pagination, search and empty states")
 
+        store.resetBrowsing()
+        let cancelledIndex = Task { await store.prepareFilters(client: client, selection: "library:films") }
+        for _ in 0..<100 where !store.indexing { await Task.yield() }
+        cancelledIndex.cancel()
+        store.resetBrowsing()
+        await store.prepareFilters(client: client, selection: "library:series")
+        await cancelledIndex.value
+        try check(store.filterIndex?.map(\.id) == ["show"] && !store.indexing, "Stale/cancelled category index replaced new category")
+        store.resetBrowsing()
+        await store.prepareFilters(client: client, selection: "library:films")
+        try check(store.filterIndex?.count == 70 && store.indexError == nil, "Full-category metadata index omitted a server-capped page")
+        store.filter.year = 2026
+        await store.refresh(client: client, selection: "library:films", search: "")
+        try check(store.items.count == 60 && store.totalCount == 70 && store.hasMore, "Filtered first page invalid")
+        await store.more(client: client, selection: "library:films", search: "")
+        try check(store.items.count == 70 && !store.hasMore, "Filtered pagination did not cover the whole category")
+        store.filter.genre = "动画"; store.filter.country = "日本"; store.filter.played = false
+        await store.refresh(client: client, selection: "library:films", search: "")
+        try check(store.totalCount == 33 && store.items.contains { $0.id == "wall-65" }, "Combined filters only searched the first page")
+        await store.refresh(client: client, selection: "library:films", search: "65")
+        try check(store.items.map(\.id) == ["wall-65"], "Category filters and search did not intersect")
+        store.filter = LibraryFilter(); store.filter.country = ""
+        await store.refresh(client: client, selection: "library:films", search: "")
+        try check(store.items.map(\.id) == ["wall-67"], "Unknown countries were invented or lost")
+        store.resetBrowsing()
+        await store.refresh(client: client, selection: "library:series", search: "mkv")
+        try check(store.items.isEmpty, "Category search leaked into a different library")
+        store.path = [try await client.item(id: "show")]
+        await store.refresh(client: client, selection: "library:series", search: "")
+        try check(store.items.map(\.id) == ["season"], "Category filters broke season navigation")
+        store.path = []
+        store.resetBrowsing()
+        await store.prepareFilters(client: client, selection: "library:broken")
+        try check(store.filterIndex == nil && store.indexError != nil && !store.indexing, "Repeated server pages were presented as a complete index")
+        store.resetBrowsing()
+        print("PASS: \(kind.label) complete/cancelled metadata indexing, combined year/genre/country/watched filters, filtered pagination, scoped search and seasons")
+
         let stale = Task { await store.refresh(client: client, selection: "search", search: "mkv") }
         try await Task.sleep(for: .milliseconds(50))
         await store.refresh(client: client, selection: "movies", search: "")

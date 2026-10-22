@@ -10,6 +10,7 @@ struct ContentView: View {
     @ViewState private var sidebarVisible = true
     @ViewState private var playerWindow = PlayerWindow()
     @ViewState private var detail: MediaItem?
+    @ViewState private var returnSelection = "home"
     @FocusState private var searchFocused: Bool
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("ambientMotion") private var ambientMotion = true
@@ -40,7 +41,7 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         if !immersive { toolbar }
                         if selection == "playing" {
-                            PlayerView(playback: playback, window: playerWindow)
+                            PlayerView(playback: playback, window: playerWindow, exit: exitPlayback)
                         } else {
                             LibraryView(library: library, client: client, title: title, selection: selection, searching: !query.isEmpty,
                                         showHome: selection == "home" && library.path.isEmpty && query.isEmpty,
@@ -54,7 +55,7 @@ struct ContentView: View {
                     TidalBackdrop(items: Array((library.recommendations.isEmpty ? library.libraries : library.recommendations).prefix(8)),
                                   client: client, active: selection != "playing" && !playback.isPlaying)
                 }
-                .task(id: "\(selection)|\(search)|\(library.path.last?.id ?? "")|\(playback.revision)") {
+                .task(id: [AnyHashable(selection), AnyHashable(search), AnyHashable(library.path.last?.id), AnyHashable(playback.revision), AnyHashable(library.filter)]) {
                     if selection != "playing" { await refresh() }
                 }
             } else {
@@ -69,6 +70,7 @@ struct ContentView: View {
                 MediaDetailView(item: item, client: client, library: library) { fresh, fromStart, sourceID in
                     playback.play(fresh, client: client, queue: library.items.filter { !$0.isContainer }, fromStart: fromStart, sourceID: sourceID)
                     detail = nil
+                    returnSelection = selection
                     selection = "playing"
                 }
             }
@@ -78,6 +80,15 @@ struct ContentView: View {
             library = LibraryStore()
             selection = "home"
             search = ""
+        }
+        .onChange(of: playback.revision) { _, _ in library.invalidateIndex() }
+        .onChange(of: playback.item?.id) { _, id in
+            if id == nil, selection == "playing" {
+                playerWindow.showingOptions = false
+                playerWindow.isWindowFullScreen = false
+                playerWindow.exitFullScreen()
+                selection = returnSelection
+            }
         }
     }
 
@@ -150,13 +161,16 @@ struct ContentView: View {
                 Label("登录未保存", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(Theme.accent).help(error)
             }
+            if selection != "playing", let error = playback.syncError {
+                Label("进度待同步", systemImage: "exclamationmark.icloud").font(.caption).help(error)
+            }
             if selection != "playing" {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField(selection == "favorites" ? "搜索收藏" : "搜索电影、剧集", text: $search).textFieldStyle(.plain).focused($searchFocused)
                     if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }.help("清除搜索") }
                 }.padding(9).frame(width: 220).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
-                Button { Task { await refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("刷新媒体库")
+                Button { library.invalidateIndex(); Task { await refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("刷新媒体库")
             }
             Menu {
                 Picker("外观", selection: $appearanceMode) {
@@ -186,10 +200,24 @@ struct ContentView: View {
     }
 
     private func navigate(_ destination: String) {
+        if selection == "playing", destination != "playing" { stopPlayback() }
+        if destination != selection, destination != "playing" { library.resetBrowsing() }
         library.path = []
         search = ""
         selection = destination
         searchFocused = destination == "search"
+    }
+
+    private func stopPlayback() {
+        playback.endPlayback()
+        playerWindow.showingOptions = false
+        playerWindow.isWindowFullScreen = false
+        playerWindow.exitFullScreen()
+    }
+
+    private func exitPlayback() {
+        stopPlayback()
+        selection = returnSelection
     }
 
     private func refresh() async {

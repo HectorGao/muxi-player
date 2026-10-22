@@ -150,6 +150,45 @@ import MuxiCore
         await controller.stop()
         try check(controller.syncError == nil, "MP4 stop progress failed")
         print("PASS: MP4 direct playback, actual embedded/external tracks, EOF and replay")
+
+        let slow = try await client.item(id: "slow")
+        let eventStart = fixtureEvents().count
+        controller.play(slow, client: client, fromStart: true)
+        try await wait("throttled stream playback") { !controller.loading && controller.isPlaying }
+        controller.seek(to: 25)
+        controller.endPlayback()
+        try check(controller.item == nil && !controller.loading && !controller.isPlaying, "Exit must clear playback synchronously")
+        try await wait("exit closes throttled HTTP transfer") {
+            engine.string("idle-active") == "yes" && fixtureEvents().dropFirst(eventStart).contains {
+                $0["event"] as? String == "StreamClosed" && $0["complete"] as? Bool == false
+            }
+        }
+        await controller.stop()
+        let savedStop = try await client.item(id: slow.id)
+        try check(abs(Double(savedStop.resumeTicks) / 10_000_000 - 25) < 1, "Exit immediately after seek lost requested position")
+
+        controller.play(slow, client: client)
+        controller.endPlayback()
+        try await Task.sleep(for: .milliseconds(500))
+        try check(controller.item == nil && controller.plan == nil && !controller.loading && engine.string("idle-active") == "yes", "Cancelled preparation restarted background playback")
+        print("PASS: exit interrupts active HTTP transfer, immediate-seek position is saved, cancelled loading stays stopped")
+
+        let defaultsName = "muxi-playback-check-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let offlineReportClient = EmbyClient(baseURL: base, deviceID: "report-failure", connection: connection)
+        let offline = PlaybackController(headless: true, resumeDefaults: defaults)
+        offline.play(mp4, client: offlineReportClient, fromStart: true)
+        try await wait("failed-report fixture playback") { offline.isPlaying && !offline.loading }
+        offline.seek(to: 34)
+        await offline.stop()
+        try check(offline.syncError != nil && defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("pendingResume.") }, "Failed server sync did not retain local resume position")
+        let reopened = PlaybackController(headless: true, resumeDefaults: defaults)
+        reopened.play(mp4, client: client)
+        try await wait("local resume after new controller") { reopened.isPlaying && !reopened.loading && abs(reopened.position - 34) < 2 }
+        await reopened.stop()
+        try check(reopened.syncError == nil && !defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("pendingResume.") }, "Successful sync did not clear the pending local position")
+        print("PASS: offline progress fallback survives controller recreation and clears after confirmed server sync")
         print("Boundary: headless decode/control checks; native video rendering is verified separately.")
     }
 }
