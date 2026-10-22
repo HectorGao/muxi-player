@@ -219,3 +219,10 @@ python3 script/smoke_server.py --ffmpeg /path/to/ffmpeg
 - 图标 A / B / C 由内置 image_gen 生成，透明 PNG 和提示词保存在 `docs/brand/`；用户尚未选定，本版本不将任何候选擅自设为正式图标。
 - DMG 打包增加只读压缩镜像、Applications 快捷入口与安装说明；打包流程执行镜像校验、挂载后深度签名检查、主程序哈希对照、Applications 链接断言，最后卸载。发布后结果另行补充。
 - 新增 Windows / Mac 路线图。当前 SwiftUI 应用仍只构建 macOS arm64，Windows 不在已交付范围；真实 Jellyfin、Intel、干净机器、公证及钥匙串迁移问题仍需后续验证。
+
+### alpha.3 发布复核
+
+- 最终应用显示 `muxi · 幕汐` 窗口与 muxi 菜单；Emby 默认 `SenPlayer 兼容（默认）`，切换 Jellyfin 时隐藏兼容选项，切回 Emby 保留选择。
+- 本机 DMG 创建、镜像校验、只读挂载后的深度签名 / 主程序哈希 / Applications 链接检查及卸载全部通过；ZIP 完整性通过。DMG SHA-256：`9ce030aae78b23b19ae3222ef3da96b2481d3b596ab435cc803ac13677c4933b`。
+- GitHub 主分支构建 `39816208844`、标签构建与发布 `39816398828` 均成功；标签 `v0.1.0-alpha.3` 保持源码提交 `cb0134cee99a56826d6cd98daa24acf2e0e09145`。Release 为公开预览版，六个附件的大小与 SHA-256 均和本地一致；DMG 下载重定向后 HTTP 200，大小 51,877,495 字节。
+- 此补充仅更新验证记录，不修改已发布标签和二进制。图标仍等待用户选择；没有把候选设为正式图标。
