@@ -128,7 +128,7 @@ struct PlayerView: View {
                         Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).frame(width: 35, height: 32)
                     }.help("播放 / 暂停（空格）").accessibilityLabel(playback.isPlaying ? "暂停" : "播放")
                     control("前进 10 秒", symbol: "goforward.10") { playback.seek(to: playback.position + 10) }
-                    if playback.nextItem != nil { control("下一集", symbol: "forward.end.fill") { playback.playNext() } }
+                    if playback.canPlayNext { control("下一集", symbol: "forward.end.fill") { playback.playNext() } }
                     Spacer(minLength: 0)
                     HStack(spacing: 7) {
                         Button { playback.volume = playback.volume > 0 ? 0 : 1 } label: { Image(systemName: playback.volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill") }.help("静音 / 恢复音量")
@@ -219,7 +219,7 @@ struct PlayerView: View {
             }.disabled(playback.loading || playback.plan == nil)
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "info.circle")
-                Text(playback.syncError ?? (playback.canConvertVideo ? "低带宽时可降低码率与分辨率，由服务器转换后传输；切换画质或片源版本会保留位置。" : "此账号未开放转码。低带宽请选较小片源版本，或暂停等待缓冲；本机降画质不能减少原片下载量。"))
+                Text(playback.syncError ?? (playback.isOnlinePlayback ? "在线片源使用实际音轨与字幕。画质可在影片详情中选择线路或文件，播放位置保存在本机。" : playback.canConvertVideo ? "低带宽时可降低码率与分辨率，由服务器转换后传输；切换画质或片源版本会保留位置。" : "此账号未开放转码。低带宽请选较小片源版本，或暂停等待缓冲；本机降画质不能减少原片下载量。"))
                 Spacer(minLength: 0)
                 if let plan = playback.plan {
                     Text(plan.method == "DirectPlay" ? "直接播放" : plan.method == "DirectStream" ? "转封装" : "服务器转码")

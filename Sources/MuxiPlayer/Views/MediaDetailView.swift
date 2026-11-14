@@ -22,7 +22,7 @@ struct MediaDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(shown.Name).font(.title.weight(.semibold))
                     Text(shown.subtitle).foregroundStyle(.secondary)
-                    if let rating = shown.CommunityRating { Label(String(format: "%.1f", rating), systemImage: "star.fill").foregroundStyle(Theme.accent) }
+                    RatingBadge(item: shown, compact: false)
                     ScrollView { Text(shown.Overview ?? "暂无简介").frame(maxWidth: .infinity, alignment: .leading).lineSpacing(5) }.frame(maxHeight: 150)
                     if detecting { ProgressView("正在识别片源、编码和轨道…").font(.caption) }
                     if !sources.isEmpty {

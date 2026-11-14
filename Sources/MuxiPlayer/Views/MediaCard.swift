@@ -25,9 +25,8 @@ struct MediaCard: View {
                         }
                     }
                     .overlay(alignment: .bottomLeading) {
-                        if !landscape, let rating = item.CommunityRating, rating > 0 {
-                            Label(String(format: "%.1f", rating), systemImage: "star.fill")
-                                .font(.caption2.weight(.semibold)).foregroundStyle(.white).padding(5)
+                        if !landscape {
+                            RatingBadge(item: item).padding(5)
                                 .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 5)).padding(7)
                         }
                     }
@@ -74,7 +73,7 @@ struct FavoriteButton: View {
 
 struct PosterView: View {
     let item: MediaItem
-    let client: EmbyClient
+    let client: EmbyClient?
     var backdrop = false
     @ViewState private var image: NSImage?
     private static let cache: NSCache<NSString, NSImage> = {
@@ -91,14 +90,25 @@ struct PosterView: View {
                 if let image { Image(nsImage: image).resizable().scaledToFill() }
                 else { Image(systemName: item.isContainer ? "rectangle.stack" : "film").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(.tertiary) }
             }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
-        }.task(id: "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(item.id)|\(backdrop)|\(item.ImageTags?["Primary"] ?? "")|\(item.BackdropImageTags?.first ?? "")") {
+        }.task(id: "\(client?.baseURL.absoluteString ?? "")|\(client?.connection?.user.Id ?? "")|\(item.id)|\(item.RemoteImageURL?.absoluteString ?? "")|\(backdrop)|\(item.ImageTags?["Primary"] ?? "")|\(item.BackdropImageTags?.first ?? "")") {
             image = nil
             do {
-                guard let request = try client.imageRequest(item: item, backdrop: backdrop) else { return }
-                let key = "\(client.connection?.user.Id ?? "")|\(request.url!.absoluteString)" as NSString
+                let request: URLRequest
+                if let remote = item.RemoteImageURL {
+                    guard let url = try? OnlineCatalogClient.checkedURL(remote.absoluteString) else { return }
+                    request = URLRequest(url: url, timeoutInterval: 12)
+                } else if let client, let imageRequest = try client.imageRequest(item: item, backdrop: backdrop) { request = imageRequest }
+                else { return }
+                let key = "\(client?.connection?.user.Id ?? "")|\(request.url!.absoluteString)" as NSString
                 if let cached = Self.cache.object(forKey: key) { image = cached; return }
-                let data = try await client.data(for: request)
-                guard !Task.isCancelled, let loaded = NSImage(data: data) else { return }
+                let data: Data
+                if item.RemoteImageURL == nil, let client { data = try await client.data(for: request) }
+                else {
+                    let result = try await PublicNetwork.shared.data(for: request)
+                    guard let response = result.1 as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { return }
+                    data = result.0
+                }
+                guard !Task.isCancelled, data.count < 8_000_000, let loaded = NSImage(data: data) else { return }
                 Self.cache.setObject(loaded, forKey: key, cost: Int(loaded.size.width * loaded.size.height * 4))
                 image = loaded
             } catch { /* Missing artwork leaves the media item usable. */ }

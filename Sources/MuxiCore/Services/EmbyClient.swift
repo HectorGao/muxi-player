@@ -96,7 +96,7 @@ public final class EmbyClient {
                       favoritesOnly: Bool = false, unplayedOnly: Bool = false, metadataOnly: Bool = false,
                       savedSince: Date? = nil, userSavedSince: Date? = nil, idsOnly: Bool = false) async throws -> ItemPage {
         var query: [URLQueryItem] = [
-            .init(name: "Fields", value: idsOnly ? "" : metadataOnly ? "Genres,ProductionLocations,ProductionYear,CommunityRating,DateCreated,SortName,OriginalTitle,MediaStreams,Width,Height,VideoType,Container" : "Overview,PrimaryImageAspectRatio,ProductionYear,CommunityRating"), .init(name: "EnableUserData", value: idsOnly ? "false" : "true"),
+            .init(name: "Fields", value: idsOnly ? "" : metadataOnly ? "Genres,ProductionLocations,ProductionYear,CommunityRating,DateCreated,SortName,OriginalTitle,ProviderIds,MediaStreams,Width,Height,VideoType,Container" : "Overview,PrimaryImageAspectRatio,ProductionYear,CommunityRating,ProviderIds,OriginalTitle"), .init(name: "EnableUserData", value: idsOnly ? "false" : "true"),
             .init(name: "EnableImages", value: idsOnly ? "false" : "true"), .init(name: "ImageTypeLimit", value: "1"),
             .init(name: "StartIndex", value: String(start)), .init(name: "Limit", value: String(limit)),
             .init(name: "Recursive", value: String(recursive)),

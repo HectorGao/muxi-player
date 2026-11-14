@@ -17,6 +17,9 @@ struct ContentView: View {
     @ViewState private var sidebarVisible = true
     @ViewState private var playerWindow = PlayerWindow()
     @ViewState private var detail: MediaSelection?
+    @ViewState private var onlineDetail: OnlineSelection?
+    @ViewState private var online = OnlineLibraryStore.shared
+    @ViewState private var sourcePosters: [UUID: [MediaItem]] = [:]
     @ViewState private var managingSources = false
     @ViewState private var refreshRevision = 0
     @ViewState private var pendingFolder: MediaItem?
@@ -53,16 +56,24 @@ struct ContentView: View {
                     Text("如 macOS 询问钥匙串权限，请允许 muxi 读取已保存的连接。")
                         .font(.callout).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if !connection.sources.isEmpty {
+            } else {
                 HStack(spacing: 0) {
                     if sidebarVisible && !immersive { sidebar.frame(width: 210) }
                     VStack(spacing: 0) {
                         if !immersive { toolbar }
-                        if selection != "playing", let recent = playback.recent, let client = recentClient {
-                            returnToPlayback(recent, client: client)
+                        if selection != "playing" {
+                            if playback.onlineMostRecent, let recent = playback.onlineRecent,
+                               let source = online.sources.first(where: { $0.id == recent.entry.sourceID }) {
+                                returnToOnlinePlayback(recent, source: source)
+                            } else if let recent = playback.recent, let client = recentClient {
+                                returnToPlayback(recent, client: client)
+                            }
                         }
                         if selection == "playing" {
                             PlayerView(playback: playback, window: playerWindow, exit: exitPlayback)
+                        } else if let source = online.selectedSource {
+                            OnlineLibraryView(store: online, source: source, selection: selection, search: query,
+                                              revision: refreshRevision, open: openOnline)
                         } else if let client = connection.client {
                             LibraryView(library: library, client: client, title: title, selection: selection, searching: !query.isEmpty,
                                         showHome: selection == "home" && library.path.isEmpty && query.isEmpty,
@@ -71,27 +82,28 @@ struct ContentView: View {
                                 .id("\(selection)|\(library.path.last?.id ?? "")")
                         } else {
                             AggregatedLibraryView(connection: connection, selection: selection, search: query,
-                                                  playbackRevision: playback.revision + refreshRevision, open: openAggregated, browse: browseSource)
+                                                  playbackRevision: playback.revision + refreshRevision, online: online,
+                                                  onlineRevision: refreshRevision, open: openAggregated, browse: browseSource, openOnline: openOnline,
+                                                  posters: { sourcePosters[$0] = $1 })
                         }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .background {
-                    if let client = connection.client {
-                    TidalBackdrop(items: Array((library.recommendations.isEmpty ? library.libraries : library.recommendations).prefix(8)),
-                                  client: client, active: selection != "playing" && !playback.isPlaying)
-                    } else { Theme.canvas }
-                }
+                .background { backdrop }
                 .task(id: [AnyHashable(selection), AnyHashable(search), AnyHashable(library.path.last?.id), AnyHashable(playback.revision), AnyHashable(library.filter), AnyHashable(connection.selectedSourceID), AnyHashable(connection.revision)]) {
                     if selection != "playing" { await refresh() }
                 }
-            } else {
-                ConnectView(connection: connection)
             }
         }
         .background(PlayerWindowReader(state: playerWindow).frame(width: 0, height: 0))
         .focusedSceneValue(\.playerWindow, playerWindow)
         .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $managingSources) { SourceManagerView(connection: connection, playback: playback) }
+        .sheet(item: $onlineDetail) { selected in
+            OnlineDetailView(selected: selected, store: online, resume: playback.onlineRecent) { route, episode in
+                playback.playOnline(selected.entry, source: selected.source, route: route, episode: episode)
+                onlineDetail = nil; returnSelection = selection; selection = "playing"
+            }
+        }
         .sheet(item: $detail) { selected in
             MediaDetailView(item: selected.item, client: selected.client, library: selected.library) { fresh, fromStart, sourceID in
                 playback.play(fresh, client: selected.client, queue: selected.library.items.filter { !$0.isContainer }, fromStart: fromStart, sourceID: sourceID)
@@ -109,8 +121,12 @@ struct ContentView: View {
             pendingFolder = nil; pendingSelection = "home"
             search = ""
         }
+        .onChange(of: online.selectedID) { _, _ in
+            stopPlayback(); onlineDetail = nil; detail = nil
+            library = LibraryStore(); selection = "home"; search = ""
+        }
         .onChange(of: connection.revision) { _, _ in
-            stopPlayback(); detail = nil; library = LibraryStore(); selection = "home"; search = ""
+            stopPlayback(); detail = nil; sourcePosters = [:]; library = LibraryStore(); selection = "home"; search = ""
         }
 
         .onChange(of: playback.item?.id) { _, id in
@@ -121,6 +137,7 @@ struct ContentView: View {
                 selection = returnSelection
             }
         }
+        .task { await online.restore() }
     }
 
     private var sidebar: some View {
@@ -130,13 +147,15 @@ struct ContentView: View {
                 Text("幕汐").font(.caption).tracking(4).foregroundStyle(.secondary)
             }.padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 20)
             Menu {
-                Button("全部媒体源") { connection.selectSource(nil) }
+                Button("全部媒体源") { online.selectedID = nil; connection.selectSource(nil) }
                 Divider()
-                ForEach(connection.sources) { source in Button(source.name) { connection.selectSource(source.id) } }
+                ForEach(connection.sources) { source in Button(source.name) { online.selectedID = nil; connection.selectSource(source.id) } }
+                Divider()
+                ForEach(online.enabledSources) { source in Button(source.name) { connection.selectSource(nil); online.selectedID = source.id } }
             } label: {
                 HStack {
                     Image(systemName: "externaldrive")
-                    Text(connection.selectedSource?.name ?? "全部媒体源").lineLimit(1)
+                    Text(online.selectedSource?.name ?? connection.selectedSource?.name ?? "全部媒体源").lineLimit(1)
                     Spacer()
                 }.padding(10).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }.menuStyle(.borderlessButton).padding(.horizontal, 16).padding(.bottom, 18).accessibilityLabel("切换媒体源")
@@ -147,7 +166,7 @@ struct ContentView: View {
                     navigationRow("我的收藏", icon: "heart", value: "favorites")
                     Text("媒体库").font(.caption).foregroundStyle(.secondary).padding(.leading, 12).padding(.top, 22).padding(.bottom, 6)
                     navigationRow("全部内容", icon: "square.stack", value: "catalog")
-                    if connection.client == nil {
+                    if connection.client == nil || online.selectedSource != nil {
                         navigationRow("电影", icon: "film", value: "movies")
                         navigationRow("剧集", icon: "tv", value: "series")
                     } else {
@@ -171,6 +190,41 @@ struct ContentView: View {
     private var recentClient: EmbyClient? {
         guard let recent = playback.recent else { return nil }
         return connection.sources.compactMap { connection.clients[$0.id] }.first { recent.belongs(to: $0) }
+    }
+
+    @ViewBuilder private var backdrop: some View {
+        let active = selection != "playing" && !playback.isPlaying
+        if let client = connection.client, online.selectedID == nil {
+            let shelves = library.libraries.flatMap { library.shelves[$0.id]?.items ?? [] }
+            let items = library.items.isEmpty ? (library.recommendations.isEmpty ? shelves : library.recommendations) : library.items
+            TidalBackdrop(items: items.filter { $0.ImageTags?["Primary"] != nil }, client: client, active: active)
+        } else if online.selectedID == nil, let source = connection.sources.first(where: { !(sourcePosters[$0.id] ?? []).isEmpty }),
+                  let client = connection.clients[source.id] {
+            TidalBackdrop(items: sourcePosters[source.id] ?? [], client: client, active: active)
+        } else { TidalBackdrop(items: online.backdropItems, client: nil, active: active) }
+    }
+
+    private func openOnline(_ entry: OnlineItem, source: OnlineSource) { onlineDetail = OnlineSelection(entry: entry, source: source) }
+
+    private func returnToOnlinePlayback(_ recent: OnlineResume, source: OnlineSource) -> some View {
+        HStack(spacing: 14) {
+            Button {
+                returnSelection = selection
+                playback.resumeOnline(source: source)
+                selection = "playing"
+            } label: {
+                HStack(spacing: 14) {
+                    PosterView(item: recent.entry.media, client: nil).frame(width: 88, height: 50).clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(recent.entry.media.Name).font(.callout.weight(.semibold)).lineLimit(1)
+                        Text("上次看到 " + PlaybackTime.label(recent.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Label("继续观看", systemImage: "play.fill").foregroundStyle(Theme.accent)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            Button { playback.clearRecent() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("收起续播卡片")
+        }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 24).padding(.top, 14)
     }
 
     private func returnToPlayback(_ recent: RecentPlayback, client: EmbyClient) -> some View {
@@ -200,6 +254,7 @@ struct ContentView: View {
     }
 
     private func browseSource(_ source: SavedMediaSource, destination: String) {
+        online.selectedID = nil
         pendingSelection = destination
         connection.selectSource(source.id)
     }
@@ -233,7 +288,7 @@ struct ContentView: View {
                 Button { library.path.removeLast() } label: { Image(systemName: "chevron.left") }.help("返回上一级")
             }
             Text(title).font(.callout.weight(.medium)).lineLimit(1)
-            Text(connection.selectedSource?.name ?? "全部媒体源").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(online.selectedSource?.name ?? connection.selectedSource?.name ?? "全部媒体源").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer()
             if let error = connection.error {
                 Label("媒体源提示", systemImage: "exclamationmark.triangle")
@@ -249,7 +304,7 @@ struct ContentView: View {
                     if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }.help("清除搜索") }
                 }.padding(9).frame(width: 220).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
                 Button { refreshRevision += 1; Task {
-                    if library.filterIndex != nil, let client = connection.client { await library.prepareFilters(client: client, selection: selection, force: true) }
+                    if library.filterIndex != nil, let client = connection.client { await library.prepareFilters(client: client, selection: selection, force: true, search: query) }
                     await refresh()
                 } } label: { Image(systemName: "arrow.clockwise") }.help("刷新媒体库")
             }

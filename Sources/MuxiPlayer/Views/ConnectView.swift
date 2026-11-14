@@ -130,6 +130,7 @@ struct SettingsView: View {
     @ViewState private var managingSources = false
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("ambientMotion") private var ambientMotion = true
+    @AppStorage("fetchExternalRatings") private var fetchExternalRatings = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Form {
@@ -147,6 +148,12 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             UpdateSettingsView(updater: updater)
+            Section("影片评分") {
+                Toggle("自动补全豆瓣与 IMDb 评分", isOn: $fetchExternalRatings)
+                Text("优先使用已匹配的影片 ID，缺少 ID 时按原名与年份精确匹配。评分保留来源并缓存 7 天，暂不可用时保留已有评分。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Link("IMDb 数据接口与来源说明", destination: URL(string: "https://agregarr.org/docs/imdb-ratings/")!)
+            }
             Section("媒体源") {
                 LabeledContent("已保存", value: "\(connection.sources.count) 个媒体源")
                 Button("管理媒体源") { managingSources = true }

@@ -188,6 +188,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path, query = self.parsed()
+        if path == "/cms":
+            self.record("OnlineQuery", {key: query.get(key, [None])[0] for key in ["wd", "pg", "h", "ids"]})
+            base = f"http://{self.headers['Host']}/emby/Videos"
+            row = {"vod_id": 1, "vod_name": "Online fixture", "vod_year": "2024", "vod_play_from": "原画$$$慢速线路",
+                   "vod_play_url": f"第一集${base}/mkv/stream#第二集${base}/movie/stream$$$第一集${base}/slow/stream"}
+            return self.respond({"list": [row], "total": 1, "pagecount": 1})
+        if path == "/offline-cms":
+            self.record("OfflineOnlineQuery", {})
+            return self.respond({}, 503)
         if path.startswith("/media/") or path.startswith("/Videos/"):
             relative = ("source.mkv" if path.split("/")[2] == "mkv" else "source.mp4") if path.startswith("/Videos/") else path.removeprefix("/media/")
             return self.send_file(relative, slow=path.startswith("/Videos/slow/"))

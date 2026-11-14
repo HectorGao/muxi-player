@@ -18,6 +18,17 @@ struct RecentPlayback: Codable {
     }
 }
 
+struct OnlineResume: Codable {
+    let entry: OnlineItem
+    var route: Int
+    var episode: Int
+    var routeName: String?
+    var episodeName: String?
+    var position: Double
+    var duration: Double
+    var settings: PlaybackSettings
+}
+
 @MainActor @Observable final class PlaybackController {
     @ObservationIgnored let engine: MPVEngine?
     var item: MediaItem?
@@ -43,6 +54,12 @@ struct RecentPlayback: Codable {
     var queue: [MediaItem] = []
     var revision = 0
     private(set) var recent: RecentPlayback?
+    private(set) var onlineRecent: OnlineResume?
+    private(set) var onlineMostRecent = false
+    @ObservationIgnored private var onlineCurrent: OnlineResume?
+    @ObservationIgnored private var onlineSource: OnlineSource?
+    @ObservationIgnored private var onlineRoutes: [OnlineRoute] = []
+    @ObservationIgnored private let onlineClient: OnlineCatalogClient
     @ObservationIgnored private var recentQueue: [MediaItem] = []
     @ObservationIgnored private var client: EmbyClient?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -59,9 +76,12 @@ struct RecentPlayback: Codable {
     @ObservationIgnored private var previousExternalIDs: Set<Int> = []
     @ObservationIgnored private let resumeDefaults: UserDefaults
 
-    init(headless: Bool = false, resumeDefaults: UserDefaults = .standard) {
+    init(headless: Bool = false, resumeDefaults: UserDefaults = .standard, onlineClient: OnlineCatalogClient = OnlineCatalogClient()) {
         self.resumeDefaults = resumeDefaults
+        self.onlineClient = onlineClient
         if let data = resumeDefaults.data(forKey: "recentPlayback") { recent = try? JSONDecoder().decode(RecentPlayback.self, from: data) }
+        if let data = resumeDefaults.data(forKey: "onlineRecentPlayback") { onlineRecent = try? JSONDecoder().decode(OnlineResume.self, from: data) }
+        onlineMostRecent = resumeDefaults.bool(forKey: "onlineMostRecent")
         do { engine = try MPVEngine(headless: headless) }
         catch { engine = nil; self.error = error.localizedDescription }
         engine?.onWarning = { [weak self] message in self?.pendingExternalIndex = nil; self?.pendingSeek = nil; self?.syncError = message }
@@ -83,7 +103,13 @@ struct RecentPlayback: Codable {
     var audioTracks: [MPVTrack] { mpvTracks.filter { $0.type == "audio" } }
     var subtitleTracks: [MPVTrack] { mpvTracks.filter { $0.type == "sub" } }
     var externalSubtitles: [MediaStream] { plan?.source.MediaStreams?.filter { $0.Type == "Subtitle" && ($0.IsExternal == true || $0.IsExternalUrl == true || $0.DeliveryMethod == "External") } ?? [] }
-    var canConvertVideo: Bool { client?.connection?.user.Policy?.EnableVideoPlaybackTranscoding != false }
+    var canConvertVideo: Bool { client != nil && client?.connection?.user.Policy?.EnableVideoPlaybackTranscoding != false }
+    var isOnlinePlayback: Bool { onlineCurrent != nil }
+    var canPlayNext: Bool {
+        if nextItem != nil { return true }
+        guard let current = onlineCurrent, onlineRoutes.indices.contains(current.route) else { return false }
+        return onlineRoutes[current.route].episodes.indices.contains(current.episode + 1)
+    }
     var nextItem: MediaItem? {
         guard let item, let index = queue.firstIndex(where: { $0.id == item.id }), queue.indices.contains(index + 1) else { return nil }
         return queue[index + 1]
@@ -149,12 +175,75 @@ struct RecentPlayback: Codable {
         } catch { syncError = EmbyError.message(error) }
     }
     func retry() {
-        guard let item, let client else { return }
-        load(item: item, client: client, seconds: duration > 0 && position >= duration - 1 ? 0 : position, sourceID: plan?.source.Id)
+        let seconds = duration > 0 && position >= duration - 1 ? 0 : position
+        if let item, let client { load(item: item, client: client, seconds: seconds, sourceID: plan?.source.Id) }
+        else if var current = onlineCurrent, let source = onlineSource {
+            current.position = seconds; loadOnline(current, source: source)
+        }
     }
     func playNext() {
-        guard let nextItem, let client else { return }
-        play(nextItem, client: client, queue: queue)
+        if let nextItem, let client { play(nextItem, client: client, queue: queue) }
+        else if canPlayNext, let current = onlineCurrent, let source = onlineSource {
+            playOnline(current.entry, source: source, route: current.route, episode: current.episode + 1, fromStart: true)
+        }
+    }
+
+    func playOnline(_ entry: OnlineItem, source: OnlineSource, route: Int, episode: Int, fromStart: Bool = false) {
+        let key = "onlinePosition.\(entry.id).\(route).\(episode)"
+        let position = fromStart ? 0 : resumeDefaults.double(forKey: key)
+        let resume = OnlineResume(entry: entry, route: route, episode: episode, position: position, duration: 0, settings: PlaybackSettings())
+        loadOnline(resume, source: source)
+    }
+
+    func resumeOnline(source: OnlineSource) {
+        guard let current = onlineRecent, current.entry.sourceID == source.id else { return }
+        loadOnline(current, source: source)
+    }
+
+    private func loadOnline(_ resume: OnlineResume, source: OnlineSource) {
+        stopCurrent()
+        guard resume.entry.sourceID == source.id, let engine else { return }
+        let token = generation
+        client = nil; queue = []; sources = []; onlineSource = source; onlineCurrent = resume
+        item = resume.entry.media; settings = resume.settings
+        position = resume.position; duration = resume.duration
+        loading = true; error = nil; syncError = nil
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let routes = try await onlineClient.routes(for: resume.entry, source: source)
+                guard !Task.isCancelled, generation == token else { return }
+                var route = resume.route
+                if let name = resume.routeName {
+                    guard let matched = routes.firstIndex(where: { $0.name == name }) else { throw CatalogError("播放线路已经变动，请重新选择。") }
+                    route = matched
+                }
+                guard routes.indices.contains(route) else { throw CatalogError("播放线路已经变动，请重新打开影片选择。") }
+                let episodes = routes[route].episodes
+                var episode = resume.episode
+                if let name = resume.episodeName {
+                    guard let matched = episodes.firstIndex(where: { $0.name == name }) else { throw CatalogError("分集列表已经变动，请重新选择。") }
+                    episode = matched
+                }
+                guard episodes.indices.contains(episode) else { throw CatalogError("分集列表已经变动，请重新选择。") }
+                let selected = episodes[episode]
+                onlineRoutes = routes
+                onlineCurrent?.route = route; onlineCurrent?.episode = episode
+                onlineCurrent?.routeName = routes[route].name; onlineCurrent?.episodeName = selected.name
+                plan = PlaybackPlan(url: selected.url, source: MediaSource(id: selected.id, name: source.name + " · " + selected.name), sessionID: "", method: "DirectPlay")
+                engine.set("speed", String(speed)); engine.set("volume", String(volume * 100))
+                pendingPause = false
+                engine.load(url: selected.url, seconds: resume.position, paused: false)
+                timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(45))
+                    guard !Task.isCancelled, let self, self.generation == token, self.loading else { return }
+                    self.stopCurrent(clearPlan: false); self.error = "在线片源加载超时，请重试或选择其他线路。"
+                }
+            } catch {
+                guard !Task.isCancelled, generation == token else { return }
+                loading = false; self.error = "在线片源暂时无法播放，请检查网络或重新选择线路。"
+            }
+        }
     }
 
     func resumeRecent(client: EmbyClient) {
@@ -166,15 +255,27 @@ struct RecentPlayback: Codable {
 
     func clearRecent() {
         recent = nil; recentQueue = []; resumeDefaults.removeObject(forKey: "recentPlayback")
+        onlineRecent = nil; onlineMostRecent = false
+        resumeDefaults.removeObject(forKey: "onlineRecentPlayback")
+        resumeDefaults.set(false, forKey: "onlineMostRecent")
     }
 
     private func rememberPlayback() {
+        if var current = onlineCurrent {
+            current.position = position; current.duration = duration; current.settings = settings
+            onlineRecent = current; onlineMostRecent = true
+            resumeDefaults.set(true, forKey: "onlineMostRecent")
+            resumeDefaults.set(position, forKey: "onlinePosition.\(current.entry.id).\(current.route).\(current.episode)")
+            if let data = try? JSONEncoder().encode(current) { resumeDefaults.set(data, forKey: "onlineRecentPlayback") }
+            return
+        }
         guard var item, let client else { return }
         item.MediaStreams = nil
         recent = RecentPlayback(item: item, baseURL: client.baseURL, userID: client.connection?.user.Id ?? "",
                                 serverKind: client.serverKind, position: position, duration: duration,
                                 sourceID: plan?.source.Id, settings: settings)
         recentQueue = queue
+        onlineMostRecent = false; resumeDefaults.set(false, forKey: "onlineMostRecent")
         if let data = try? JSONEncoder().encode(recent) { resumeDefaults.set(data, forKey: "recentPlayback") }
     }
 
@@ -182,6 +283,7 @@ struct RecentPlayback: Codable {
         stopCurrent()
         guard let engine else { error = "libmpv 播放内核未能初始化，请重新安装完整应用。"; return }
         let currentGeneration = generation
+        onlineCurrent = nil; onlineSource = nil; onlineRoutes = []
         self.item = item; self.client = client
         position = seconds
         duration = Double(item.RunTimeTicks ?? 0) / 10_000_000
@@ -278,14 +380,15 @@ struct RecentPlayback: Codable {
     func setSpeed(_ value: Float) { speed = value; engine?.set("speed", String(value)) }
 
     private func enqueueReport(_ event: String) {
-        guard let item, let plan, let client, started else { return }
+        guard started else { return }
         rememberPlayback()
+        lastReport = Date()
+        guard let item, let plan, let client else { return }
         if event == "Progress" { guard !reportingProgress else { return }; reportingProgress = true }
         let ticks = PlaybackTime.ticks(position), paused = pendingPause ?? engine?.paused ?? true
         let resumeKey = resumeKey(item: item, client: client), seconds = Double(ticks) / 10_000_000
         resumeDefaults.set(seconds, forKey: resumeKey)
-        let settings = settings, previous = reportTask
-        lastReport = Date()
+        let settings = settings, previous = reportTask, reportGeneration = generation
         reportTask = Task { [weak self] in
             await previous?.value
             do {
@@ -293,12 +396,14 @@ struct RecentPlayback: Codable {
                 if self?.resumeDefaults.object(forKey: resumeKey) as? Double == seconds {
                     self?.resumeDefaults.removeObject(forKey: resumeKey)
                 }
-                self?.syncError = nil
-            } catch { self?.syncError = "进度已保存在本机，暂未同步：" + EmbyError.message(error) }
+                if self?.generation == reportGeneration { self?.syncError = nil }
+            } catch {
+                if self?.generation == reportGeneration { self?.syncError = "进度已保存在本机，暂未同步：" + EmbyError.message(error) }
+            }
             if event == "Progress" { self?.reportingProgress = false }
             if event == "Stopped", plan.method != "DirectPlay" {
                 do { try await client.stopTranscoding(sessionID: plan.sessionID) }
-                catch { self?.syncError = "服务器未确认结束转码，请检查网络。" }
+                catch { if self?.generation == reportGeneration { self?.syncError = "服务器未确认结束转码，请检查网络。" } }
             }
         }
     }
@@ -319,7 +424,11 @@ struct RecentPlayback: Codable {
         isPlaying = false; loading = false; buffering = false
         networkBytesPerSecond = 0; bufferedSeconds = 0; droppedFrames = 0; decoding = "正在识别"
     }
-    func endPlayback() { stopCurrent(); item = nil; sources = []; queue = []; revision += 1 }
+    func endPlayback() {
+        stopCurrent(); item = nil; sources = []; queue = []
+        onlineCurrent = nil; onlineSource = nil; onlineRoutes = []
+        revision += 1
+    }
     func stop() async { endPlayback(); await reportTask?.value }
 
     private func resumeKey(item: MediaItem, client: EmbyClient) -> String {

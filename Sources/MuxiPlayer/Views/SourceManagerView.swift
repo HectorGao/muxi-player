@@ -14,7 +14,7 @@ struct SourceManagerView: View {
             HStack {
                 Text("媒体源").font(.title2.weight(.semibold))
                 Spacer()
-                Button("添加媒体源") { connection.error = nil; adding = true }.buttonStyle(.borderedProminent)
+                Button("添加 Emby / Jellyfin") { connection.error = nil; adding = true }.buttonStyle(.borderedProminent)
                 Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             Text("保存一次，下次自动连接。全部媒体源可以一起浏览、搜索和查看收藏。")
@@ -34,11 +34,13 @@ struct SourceManagerView: View {
                             Button("移除", role: .destructive) { removing = source }
                         }.padding(16).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
                     }
+                    Divider().padding(.vertical, 8)
+                    OnlineSourceSettings(store: .shared)
                 }
             }
             if connection.sources.isEmpty { Text("还没有媒体源，添加后即可建立私人影视库。").foregroundStyle(.secondary) }
             if let error = connection.error { Text(error).foregroundStyle(.red).font(.callout) }
-        }.padding(26).frame(width: 660, height: 480).disabled(connection.connecting)
+        }.padding(26).frame(width: 760, height: 650).disabled(connection.connecting)
             .sheet(isPresented: $adding) {
                 ConnectView(connection: connection, saved: { adding = false }, cancel: { adding = false }).frame(width: 960, height: 760)
             }

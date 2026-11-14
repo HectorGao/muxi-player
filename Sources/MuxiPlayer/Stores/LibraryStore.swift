@@ -34,6 +34,7 @@ struct LibraryShelf {
 
     init(indexCache: LibraryIndexCache? = nil) { self.indexCache = indexCache ?? .shared }
     @ObservationIgnored private var indexScope: String?
+    @ObservationIgnored private var indexCacheScope: String?
     @ObservationIgnored private var indexGeneration = UUID()
     private var favoriteValues: [String: Bool] = [:]
     @ObservationIgnored private var currentSelection = "home"
@@ -41,7 +42,7 @@ struct LibraryShelf {
 
     func invalidateIndex() {
         indexGeneration = UUID()
-        filterIndex = nil; indexScope = nil; indexing = false; indexedCount = 0; indexError = nil
+        filterIndex = nil; indexScope = nil; indexCacheScope = nil; indexing = false; indexedCount = 0; indexError = nil
     }
 
     func resetBrowsing() { filter = LibraryFilter(); invalidateIndex() }
@@ -51,14 +52,15 @@ struct LibraryShelf {
     }
 
     // Incremental server metadata updates; a periodic ID-only pass detects deletions.
-    func prepareFilters(client: EmbyClient, selection: String, force: Bool = false, rebuild: Bool = false) async {
-        guard Self.canFilter(selection) else { return }
-        let scope = "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)"
+    func prepareFilters(client: EmbyClient, selection: String, force: Bool = false, rebuild: Bool = false, search: String = "") async {
+        guard Self.canFilter(selection) || !search.isEmpty else { return }
+        let cacheScope = selection + (search.isEmpty ? "" : "|search:" + search.lowercased())
+        let scope = "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(cacheScope)"
         if !force && !rebuild, indexScope == scope, filterIndex != nil,
            let indexUpdatedAt, Date().timeIntervalSince(indexUpdatedAt) < 300 { return }
         let token = UUID()
-        indexGeneration = token; indexScope = scope; indexError = nil
-        let cached = rebuild ? nil : indexCache.load(client: client, scope: selection)
+        indexGeneration = token; indexScope = scope; indexCacheScope = cacheScope; indexError = nil
+        let cached = rebuild ? nil : indexCache.load(client: client, scope: cacheScope)
         filterIndex = cached?.items; indexUpdatedAt = cached?.syncedAt
         indexedCount = cached?.items.count ?? 0
         if !force, let cached, Date().timeIntervalSince(cached.syncedAt) < 300 { return }
@@ -66,12 +68,12 @@ struct LibraryShelf {
         defer { if indexGeneration == token { indexing = false } }
         let started = Date()
         let parent = selection.hasPrefix("library:") ? String(selection.dropFirst(8)) : nil
-        let type = selection == "movies" ? "Movie" : selection == "series" ? "Series" : "Movie,Series,BoxSet"
+        let type = selection == "movies" ? "Movie" : selection == "series" ? "Series" : search.isEmpty ? "Movie,Series,BoxSet" : "Movie,Series,Episode,BoxSet"
         func pages(since: Date? = nil, userSince: Date? = nil, idsOnly: Bool = false) async throws -> [MediaItem] {
             var result: [MediaItem] = [], known = Set<String>(), offset = 0
             while true {
                 try Task.checkCancellation()
-                let page = try await client.items(parent: parent, type: type, start: offset, limit: 500,
+                let page = try await client.items(parent: parent, type: type, search: search, start: offset, limit: 500,
                                                   sortBy: "SortName", metadataOnly: true, savedSince: since,
                                                   userSavedSince: userSince, idsOnly: idsOnly)
                 guard indexGeneration == token else { throw CancellationError() }
@@ -112,7 +114,7 @@ struct LibraryShelf {
             try Task.checkCancellation()
             guard indexGeneration == token else { return }
             let entry = LibraryIndexCache.Entry(items: collected, syncedAt: started, reconciledAt: reconciledAt)
-            try indexCache.save(entry, client: client, scope: selection)
+            try indexCache.save(entry, client: client, scope: cacheScope)
             filterIndex = collected; indexUpdatedAt = started; indexedCount = collected.count
         } catch {
             if indexGeneration == token, !Task.isCancelled {
@@ -228,6 +230,14 @@ struct LibraryShelf {
             let data = try await client.setFavorite(itemID: item.id, isFavorite: desired)
             let saved = data.IsFavorite ?? desired
             favoriteValues[item.id] = saved
+            if let index = filterIndex?.firstIndex(where: { $0.id == item.id }) {
+                var userData = filterIndex?[index].UserData ?? UserData()
+                userData.IsFavorite = saved; filterIndex?[index].UserData = userData
+                if let scope = indexCacheScope, var cached = indexCache.load(client: client, scope: scope), let filterIndex {
+                    cached.items = filterIndex
+                    try? indexCache.save(cached, client: client, scope: scope)
+                }
+            }
             if currentSelection == "favorites", path.isEmpty, !saved {
                 let removed = items.contains { $0.id == item.id }
                 items.removeAll { $0.id == item.id }
@@ -237,6 +247,18 @@ struct LibraryShelf {
     }
 
     private func fetch(client: EmbyClient, selection: String, search: String, start: Int) async throws -> ItemPage {
+        if !search.isEmpty, path.isEmpty {
+            let indexedCategory = Self.canFilter(selection) && indexCache.load(client: client, scope: selection) != nil
+            let indexSearch = indexedCategory ? "" : search
+            await prepareFilters(client: client, selection: selection, search: indexSearch)
+            try Task.checkCancellation()
+            let scope = "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)" + (indexSearch.isEmpty ? "" : "|search:" + indexSearch.lowercased())
+            guard let filterIndex, indexScope == scope else { throw EmbyError.invalidResponse }
+            let requested = Self.canFilter(selection) ? filter : LibraryFilter()
+            let values = selection == "favorites" ? filterIndex.filter(\.isFavorite) : filterIndex
+            let matches = requested.apply(to: values, search: search)
+            return ItemPage(Items: Array(matches.dropFirst(start).prefix(60)), TotalRecordCount: matches.count)
+        }
         if Self.canFilter(selection), path.isEmpty {
             let requested = filter
             if requested.isActive {

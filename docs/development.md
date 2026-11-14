@@ -19,11 +19,20 @@ python3 script/smoke_server.py --ffmpeg /path/to/ffmpeg
 # 在另一终端
 ./script/check_library.sh
 ./script/check_playback.sh
+bash script/check_online.sh
 ```
 
 多源持久化测试需再启动第二个替身 `python3 script/smoke_server.py --port 18797 --ffmpeg /path/to/ffmpeg`，然后运行 `bash script/check_sources.sh`。测试使用独立钥匙串 service 和偏好域，不读取用户媒体源。
 
 增量索引检查：`./script/check_index.sh`，验证磁盘复用、变化合并、删除核对、离线保留与账号隔离。索引只保存元数据，不保存令牌或媒体地址。按源 / 账号 / 分类隔离；5 分钟内复用缓存，随后使用 Emby / Jellyfin 的 `MinDateLastSaved` 与 `MinDateLastSavedForUser` 增量查询，每天或手动同步时读取轻量成员列表核对删除。服务端不支持这些参数时保留旧索引并提示错误，用户可重建；不要把不完整分页写成完整索引。
+
+## 在线片源与评分
+
+`OnlineCatalogClient` 对接苹果 CMS 与 Internet Archive，返回统一条目和线路。在线缓存按源、地址与关键词隔离，首次读取后复用，支持小时 / 发布时间窗口，并定期重读已缓存页核对变更。接口列表与地址写入独立钥匙串账户，媒体流 URL 只在播放时获取。
+
+`MovieRatings` 按提供方 ID，或片名与年份匹配评分，持久缓存七天。当前豆瓣网页可能返回验证页，测试通过结构化 JSON-LD 解析与 IMDb 回退，真实豆瓣抓取结果以网络环境为准。
+
+`bash script/check_online.sh --live` 额外访问公开片库、读取媒体 Range 和查询 IMDb 评分。普通替身测试不依赖外部服务。
 
 ## 自动更新发布
 

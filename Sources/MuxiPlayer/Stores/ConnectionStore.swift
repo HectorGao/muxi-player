@@ -6,7 +6,7 @@ import MuxiCore
 // Keep Keychain calls off the main actor; macOS may need to ask for access after an app update.
 actor CredentialStore {
     private let service: String
-    init(service: String = "com.hectorgao.muxi-player") { self.service = service }
+    init(service: String = Bundle.main.bundleIdentifier ?? "com.hectorgao.muxi-player") { self.service = service }
 
     private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -40,8 +40,22 @@ actor CredentialStore {
     }
 
     func save(_ sources: [SavedMediaSource]) throws {
-        let data = try JSONEncoder().encode(sources)
-        let request = query("media-sources-v1")
+        try write(JSONEncoder().encode(sources), account: "media-sources-v1")
+    }
+
+    func loadOnlineSources() throws -> [OnlineSource]? {
+        guard let data = try read("online-sources-v1") else { return nil }
+        let sources = try JSONDecoder().decode([OnlineSource].self, from: data)
+        guard Set(sources.map(\.id)).count == sources.count else { throw CocoaError(.coderReadCorrupt) }
+        return sources
+    }
+
+    func saveOnlineSources(_ sources: [OnlineSource]) throws {
+        try write(JSONEncoder().encode(sources), account: "online-sources-v1")
+    }
+
+    private func write(_ data: Data, account: String) throws {
+        let request = query(account)
         let status = SecItemUpdate(request as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var item = request

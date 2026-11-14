@@ -13,7 +13,6 @@ struct LibraryView: View {
     let more: () -> Void
     let retry: () -> Void
     @ViewState private var showingFilters = false
-    @ViewState private var yearText = ""
     private var filtering: Bool { library.path.isEmpty && LibraryStore.canFilter(selection) && library.filter.isActive }
 
     var body: some View {
@@ -86,63 +85,7 @@ struct LibraryView: View {
                         errorNotice(error) { Task { await library.prepareFilters(client: client, selection: selection, force: true) } }
                     }
                     if let index = library.filterIndex {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], alignment: .leading, spacing: 16) {
-                            Picker("内容", selection: $library.filter.kind) {
-                                Text("全部内容").tag(String?.none)
-                                Text("电影").tag(Optional("Movie")); Text("剧集").tag(Optional("Series")); Text("合集").tag(Optional("BoxSet"))
-                            }
-                            Picker("分辨率", selection: $library.filter.resolution) {
-                                Text("全部").tag(LibraryResolution?.none)
-                                ForEach(LibraryResolution.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
-                            }
-                            Picker("画面", selection: $library.filter.videoRange) {
-                                Text("全部").tag(LibraryVideoRange?.none)
-                                ForEach(LibraryVideoRange.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
-                            }
-                            Picker("音频", selection: $library.filter.audio) {
-                                Text("全部").tag(LibraryAudio?.none)
-                                ForEach(LibraryAudio.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
-                            }
-                            Picker("地区", selection: $library.filter.region) {
-                                Text("全部地区").tag(LibraryRegion?.none)
-                                ForEach(LibraryRegion.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
-                            }
-                            Picker("国家", selection: $library.filter.country) {
-                                Text("全部国家").tag(String?.none)
-                                ForEach(Array(Set(index.flatMap { $0.ProductionLocations ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
-                                Text("未标注").tag(Optional(""))
-                            }
-                            Picker("年代", selection: $library.filter.decade) {
-                                Text("全部年代").tag(Int?.none)
-                                ForEach(Array(stride(from: Calendar.current.component(.year, from: Date()) / 10 * 10, through: 1980, by: -10)), id: \.self) {
-                                    Text("\($0, format: .number.grouping(.never)) 年代").tag(Optional($0))
-                                }
-                                Text("1980 年前").tag(Optional(-1))
-                            }.onChange(of: library.filter.decade) { _, decade in if decade != nil { library.filter.year = nil } }
-                            HStack {
-                                Text("年份")
-                                TextField("输入年份，如 2024", text: $yearText)
-                                    .textFieldStyle(.roundedBorder).accessibilityLabel("指定年份")
-                                    .onChange(of: yearText) { _, text in
-                                        let digits = String(text.filter(\.isNumber).prefix(4))
-                                        if digits != text { yearText = digits }
-                                        if digits.isEmpty { library.filter.year = nil }
-                                        else if digits.count == 4, let year = Int(digits), year > 1800 {
-                                            library.filter.decade = nil; library.filter.year = year
-                                        }
-                                    }
-                                    .onChange(of: library.filter.year) { _, year in yearText = year.map(String.init) ?? "" }
-                                    .onAppear { yearText = library.filter.year.map(String.init) ?? "" }
-                            }
-                            Picker("类型", selection: $library.filter.genre) {
-                                Text("全部类型").tag(String?.none)
-                                ForEach(Array(Set(index.flatMap { $0.Genres ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
-                            }
-                            Picker("观看状态", selection: $library.filter.played) {
-                                Text("全部").tag(Bool?.none)
-                                Text("未观看").tag(Optional(false)); Text("已观看").tag(Optional(true))
-                            }
-                        }
+                        LibraryFilterPanel(library: library, index: index)
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("本机索引 · \(index.count) 项")

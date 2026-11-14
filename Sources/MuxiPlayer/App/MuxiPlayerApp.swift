@@ -31,7 +31,7 @@ import MuxiCore
                 Button("后退 10 秒") { playback.seek(to: playback.position - 10) }.keyboardShortcut(.leftArrow, modifiers: [])
                 Button("前进 10 秒") { playback.seek(to: playback.position + 10) }.keyboardShortcut(.rightArrow, modifiers: [])
                 Divider()
-                Button("下一集") { playback.playNext() }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(playback.nextItem == nil)
+                Button("下一集") { playback.playNext() }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(!playback.canPlayNext)
                 Button("停止播放") { Task { await playback.stop() } }.keyboardShortcut(".")
                 Divider()
                 Button(playerWindow?.isWindowFullScreen == true && playerWindow?.isFullScreen == false ? "退出窗口全屏" : "窗口全屏") {

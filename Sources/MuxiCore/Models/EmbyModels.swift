@@ -26,6 +26,12 @@ public struct MediaItem: Codable, Identifiable, Hashable {
     public var Height: Int?
     public var VideoType: String?
     public var Container: String?
+    public var ProviderIds: [String: String]?
+    public var RemoteImageURL: URL?
+
+    public init(id: String, name: String, type: String = "Movie") {
+        Id = id; Name = name; Type = type
+    }
 
     public var id: String { Id }
     public var isContainer: Bool { IsFolder == true || ["Series", "Season", "CollectionFolder", "BoxSet", "Folder"].contains(Type ?? "") }
@@ -139,6 +145,9 @@ public struct MediaSource: Decodable, Identifiable {
     public var DefaultSubtitleStreamIndex: Int?
     public var RunTimeTicks: Int64?
     public var RequiresOpening: Bool?
+    public init(id: String, name: String, container: String? = nil) {
+        Id = id; Name = name; Container = container
+    }
     public var id: String { Id }
     public var playbackLabel: String {
         [Name ?? Id, MediaStreams?.first { $0.Type == "Video" }?.Height.map { "\($0)p" },
@@ -198,6 +207,9 @@ public struct PlaybackPlan {
     public let source: MediaSource
     public let sessionID: String
     public let method: String
+    public init(url: URL, source: MediaSource, sessionID: String, method: String) {
+        self.url = url; self.source = source; self.sessionID = sessionID; self.method = method
+    }
 }
 
 public enum PlaybackTime {
