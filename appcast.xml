@@ -4,12 +4,12 @@
         <title>MuxiPlayer</title>
         <item>
             <title>0.1.0</title>
-            <pubDate>Sun, 15 Nov 2026 01:46:55 +0800</pubDate>
-            <sparkle:version>2026111502</sparkle:version>
+            <pubDate>Sun, 15 Nov 2026 07:25:39 +0800</pubDate>
+            <sparkle:version>2026111503</sparkle:version>
             <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/HectorGao/muxi-player/releases/download/v0.1.0-alpha.7/MuxiPlayer-0.1.0-alpha.7-macOS-arm64.zip" length="50626920" type="application/octet-stream" sparkle:edSignature="IfholKb/oz0o8Op7eEQ6KYXVtrQGf0kP5DavMHsEqFPuk8xy8FsuPIXgEZHaaCawztRw5MDhuLNFOWIlj0T+BA=="/>
+            <enclosure url="https://github.com/HectorGao/muxi-player/releases/download/v0.1.0-alpha.8/MuxiPlayer-0.1.0-alpha.8-macOS-arm64.zip" length="50960794" type="application/octet-stream" sparkle:edSignature="5fN+IgtCFCkF2NYogIzqyYCqo/7AOyVW2FYKZptCjTZ+orLaZNwFKtTXVZJPxKysyCYJH+Rw/g1IBQIJKweRBg=="/>
         </item>
     </channel>
 </rss>
