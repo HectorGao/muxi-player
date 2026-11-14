@@ -34,8 +34,12 @@ public actor MovieRatings {
     public func rating(for item: MediaItem) async -> MovieRating? {
         guard item.Type == "Movie" || item.Type == "Series" else { return nil }
         let providers = item.ProviderIds ?? [:]
-        let identity = [providers.sorted { $0.key < $1.key }.map { $0.key.lowercased() + "=" + $0.value }.joined(separator: "&"),
-                        item.OriginalTitle ?? item.Name, item.ProductionYear.map(String.init) ?? "", item.Type ?? ""].joined(separator: "\n")
+        let sortedProviders = providers.sorted { $0.key < $1.key }
+        let providerPairs: [String] = sortedProviders.map { $0.key.lowercased() + "=" + $0.value }
+        let providerIdentity = providerPairs.joined(separator: "&")
+        let year = item.ProductionYear.map { String($0) } ?? ""
+        let identityParts: [String] = [providerIdentity, item.OriginalTitle ?? item.Name, year, item.Type ?? ""]
+        let identity = identityParts.joined(separator: "\n")
         let key = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
         if entries[key] == nil, let data = try? Data(contentsOf: directory.appendingPathComponent(key + ".json")) {
             entries[key] = try? JSONDecoder().decode(Entry.self, from: data)
