@@ -41,6 +41,20 @@ struct LibraryFilterTests {
 }
 
 struct MediaSpecificationFilterTests {
+    @Test func embyAndJellyfinRangeFieldsAreBothRecognized() throws {
+        let items = try JSONDecoder().decode([MediaItem].self, from: Data(#"""
+        [
+          {"Id":"dv","Name":"Emby DV","MediaStreams":[{"Index":0,"Type":"Video","ExtendedVideoType":"DolbyVision","ExtendedVideoSubType":"DoviProfile81"}]},
+          {"Id":"hlg","Name":"Emby HLG","MediaStreams":[{"Index":0,"Type":"Video","ExtendedVideoType":"HyperLogGamma"}]},
+          {"Id":"hdr","Name":"Emby HDR","MediaStreams":[{"Index":0,"Type":"Video","ExtendedVideoType":"Hdr10Plus"}]}
+        ]
+        """#.utf8))
+        for (range, id) in [(LibraryVideoRange.dolbyVision, "dv"), (.hlg, "hlg"), (.hdr10, "hdr")] {
+            var filter = LibraryFilter(); filter.videoRange = range
+            #expect(filter.apply(to: items).map(\.id) == [id])
+        }
+    }
+
     @Test func specificationsUseMetadataAndKeepUnknownsExplicit() throws {
         let items = try JSONDecoder().decode([MediaItem].self, from: Data(#"""
         [

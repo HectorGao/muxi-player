@@ -117,9 +117,9 @@ private extension MediaItem {
     }
     func matches(_ range: LibraryVideoRange) -> Bool {
         let values = videos.map { stream -> LibraryVideoRange in
-            let hint = [stream.VideoRangeType, stream.VideoRange, stream.ColorTransfer].compactMap { $0 }.joined(separator: " ").lowercased()
+            let hint = [stream.VideoRangeType, stream.VideoRange, stream.ExtendedVideoType, stream.ExtendedVideoSubType, stream.ColorTransfer].compactMap { $0 }.joined(separator: " ").lowercased()
             if (stream.DvProfile ?? 0) > 0 || hint.contains("dovi") || hint.contains("dolbyvision") || hint.contains("dolby vision") { return .dolbyVision }
-            if hint.contains("hlg") || hint.contains("arib") { return .hlg }
+            if hint.contains("hlg") || hint.contains("hyperloggamma") || hint.contains("arib") { return .hlg }
             if hint.contains("hdr") || hint.contains("smpte2084") { return .hdr10 }
             if hint.contains("sdr") || hint.contains("bt709") { return .sdr }
             return .unknown

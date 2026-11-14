@@ -166,6 +166,8 @@ public struct MediaStream: Codable, Identifiable, Hashable {
     public var IsExternalUrl: Bool?
     public var VideoRange: String?
     public var VideoRangeType: String?
+    public var ExtendedVideoType: String?
+    public var ExtendedVideoSubType: String?
     public var ColorTransfer: String?
     public var Profile: String?
     public var DvProfile: Int?

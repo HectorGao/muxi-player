@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.1.0-alpha.7 — 2026-11-15
+
+- 包含 alpha.6 的续播卡片、精简侧栏、增量筛选索引和签名自动更新。
+- 补齐 Emby 的 ExtendedVideoType / ExtendedVideoSubType，正确区分杜比视界、HLG 与 HDR10；同时保留 Jellyfin 字段兼容。
+- 32 项 Core 测试通过。alpha.6 标签保留作验证基线，其发布草稿由本版替代，自动更新源指向本版。
+
+分发：Apple Silicon、macOS 14+，DMG / APP ZIP，ad-hoc 临时签名、未公证。
+
 ## 0.1.0-alpha.6 — 2026-11-15
 
 - 增加顶部续播卡片，离开播放仍停止取流，保留影片、播放位置、片源和播放设置；重开应用后可继续。
