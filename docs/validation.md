@@ -272,3 +272,10 @@ python3 script/smoke_server.py --ffmpeg /path/to/ffmpeg
 
 - 最后对照 Emby 文档补齐 `ExtendedVideoType` / `ExtendedVideoSubType`，同时支持 Jellyfin 的范围字段。32 项 Core 测试通过，索引检查再次通过；原有播放、窗口与自动安装实现不变，沿用上述结果。
 - 索引存储升级为 v2，以便首次包含补齐后的 HDR 元数据；旧缓存目录保留。alpha.6 的标签与发布草稿保留作验证基线，公开交付和更新源使用 alpha.7，不覆盖旧标签或附件。
+
+### alpha.7 发布复核
+
+- 发布包来自 `15e683a32646fcc2de4193dfa29452b5af55c6cb`，使用 `v0.1.0-alpha.7` 标签及构建号 2026111502。DMG 镜像完整性、只读挂载后的深度签名、主程序对照、Applications 入口和卸载检查通过。
+- 六个公开 Release 附件的大小及 SHA-256 全部与本地一致，DMG 下载 HTTP 200（55,054,801 字节）。DMG SHA-256：`8fcb32556c1ca0be891fc5c9760e1f581a8fee909e6dda7a2fa9f3692c96cc1b`。
+- 更新源 enclosure 的 URL、长度、构建号与最终 ZIP 一致；使用应用内公钥验证签名通过，修改后的归档被拒绝。公开附件核对后才提交 appcast；不修改已发布标签及二进制。
+- alpha.6 主分支 / 标签检查 43622344099 / 43622347301 成功。alpha.7 检查为 43622988896 / 43622991726，其最终状态以 Actions 页面为准。本轮最终 HDR 字段补齐在 Core 测试中验收，未重复整轮原生交互；原生续播、真实分类和自动安装沿用实现相同的 alpha.6 验证。
