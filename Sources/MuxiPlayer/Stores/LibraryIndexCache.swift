@@ -13,7 +13,7 @@ import MuxiCore
     private let directory: URL
     private var entries: [String: Entry] = [:]
 
-    init(directory: URL = URL.applicationSupportDirectory.appendingPathComponent("com.hectorgao.muxi-player/LibraryIndex-v1")) {
+    init(directory: URL = URL.applicationSupportDirectory.appendingPathComponent("com.hectorgao.muxi-player/LibraryIndex-v2")) {
         self.directory = directory
     }
 

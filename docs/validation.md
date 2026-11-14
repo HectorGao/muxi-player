@@ -267,3 +267,8 @@ python3 script/smoke_server.py --ffmpeg /path/to/ffmpeg
 - Sparkle 2.10.1 加入菜单及设置；默认自动检查和自动下载已在原生设置核对。更新包使用专用 Keychain Ed25519 密钥签名，私钥未导出。程序在解压前验证签名。
 - 完整安装演练使用独立测试 bundle / loopback 更新源：后台请求 appcast 和更新 ZIP（均 HTTP 200），正常退出后测试应用构建号由 2026111500 替换为 2026111501，没有覆盖 Applications 中的用户应用。公钥验证接受原始归档、拒绝改动后的字节。
 - 边界：真实 Jellyfin、Windows / Intel、干净机器及长片连续播放未重新验收；服务商的增量接口必须返回有效变化数据，异常时保留缓存并提供完整重建。实际 GitHub 更新源及发行包在发布后单独核对。分发仍为 Apple Silicon、macOS 14+、ad-hoc 签名、未公证。
+
+### alpha.7 的兼容修正
+
+- 最后对照 Emby 文档补齐 `ExtendedVideoType` / `ExtendedVideoSubType`，同时支持 Jellyfin 的范围字段。32 项 Core 测试通过，索引检查再次通过；原有播放、窗口与自动安装实现不变，沿用上述结果。
+- 索引存储升级为 v2，以便首次包含补齐后的 HDR 元数据；旧缓存目录保留。alpha.6 的标签与发布草稿保留作验证基线，公开交付和更新源使用 alpha.7，不覆盖旧标签或附件。
