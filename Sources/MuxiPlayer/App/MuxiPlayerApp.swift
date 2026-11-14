@@ -5,6 +5,7 @@ import MuxiCore
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @ViewState private var connection = ConnectionStore()
     @ViewState private var playback = PlaybackController()
+    @StateObject private var updater = AppUpdater()
     @FocusedValue(\.playerWindow) private var playerWindow
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
 
@@ -16,11 +17,14 @@ import MuxiCore
                 .frame(minWidth: 960, minHeight: 640)
                 .preferredColorScheme(appearance.colorScheme)
                 .tint(Theme.accent)
-                .task { delegate.playback = playback; await connection.restore() }
+                .task { delegate.playback = playback; updater.start(); await connection.restore() }
         }
         .defaultSize(width: 1320, height: 900)
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("检查更新…", action: updater.check).disabled(!updater.canCheck)
+            }
             CommandGroup(replacing: .newItem) {}
             CommandMenu("播放") {
                 Button("播放 / 暂停") { playback.togglePause() }.keyboardShortcut(.space, modifiers: [])
@@ -44,7 +48,7 @@ import MuxiCore
             }
         }
         Settings {
-            SettingsView(connection: connection, playback: playback)
+            SettingsView(connection: connection, playback: playback, updater: updater)
                 .preferredColorScheme(appearance.colorScheme).tint(Theme.accent)
         }
     }

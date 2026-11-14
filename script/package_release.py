@@ -54,6 +54,11 @@ def package(app: Path, materials: Path, output: Path, version: str) -> None:
     if architectures != ["arm64"]:
         raise RuntimeError("This release pipeline currently validates Apple Silicon (arm64) only")
     run("codesign", "--verify", "--deep", "--strict", str(app))
+    sparkle = app / "Contents/Frameworks/Sparkle.framework"
+    run("codesign", "--verify", "--deep", "--strict", str(sparkle))
+    if (info.get("SUPublicEDKey") != (ROOT / "Resources/UpdatePublicKey.txt").read_text().strip()
+            or info.get("SUVerifyUpdateBeforeExtraction") is not True):
+        raise RuntimeError("Automatic update signature verification is not configured")
     runtime_root = app / "Contents/Resources/ThirdParty/mpv"
     manifest = json.loads((runtime_root / "runtime-manifest.json").read_text())
     provenance = json.loads((runtime_root / "runtime-provenance.json").read_text())

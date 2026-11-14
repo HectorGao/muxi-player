@@ -34,6 +34,7 @@ struct ContentView: View {
         if let folder = library.path.last { return folder.Name }
         switch selection {
         case "playing": return playback.item?.Name ?? "现在观看"
+        case "catalog": return "全部内容"
         case "movies": return "电影"
         case "series": return "剧集"
         case "home": return "媒体墙"
@@ -57,6 +58,9 @@ struct ContentView: View {
                     if sidebarVisible && !immersive { sidebar.frame(width: 210) }
                     VStack(spacing: 0) {
                         if !immersive { toolbar }
+                        if selection != "playing", let recent = playback.recent, let client = recentClient {
+                            returnToPlayback(recent, client: client)
+                        }
                         if selection == "playing" {
                             PlayerView(playback: playback, window: playerWindow, exit: exitPlayback)
                         } else if let client = connection.client {
@@ -108,7 +112,7 @@ struct ContentView: View {
         .onChange(of: connection.revision) { _, _ in
             stopPlayback(); detail = nil; library = LibraryStore(); selection = "home"; search = ""
         }
-        .onChange(of: playback.revision) { _, _ in library.invalidateIndex() }
+
         .onChange(of: playback.item?.id) { _, id in
             if id == nil, selection == "playing" {
                 playerWindow.showingOptions = false
@@ -122,36 +126,37 @@ struct ContentView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("muxi").font(.system(size: 36, weight: .semibold, design: .rounded)).tracking(-1.5)
+                Text("muxi").font(.system(size: 32, weight: .semibold, design: .rounded)).tracking(-1.5)
                 Text("幕汐").font(.caption).tracking(4).foregroundStyle(.secondary)
-            }.padding(.horizontal, 22).padding(.top, 48).padding(.bottom, 28)
-            VStack(spacing: 4) {
-                navigationRow("媒体墙", icon: "square.grid.2x2", value: "home")
-                navigationRow("搜索", icon: "magnifyingglass", value: "search")
-                navigationRow("为你推荐", icon: "sparkles", value: "recommendations")
-                navigationRow("我的收藏", icon: "heart", value: "favorites")
-                navigationRow("现在观看", icon: "play.fill", value: "playing")
-                navigationRow("电影", icon: "film", value: "movies")
-                navigationRow("剧集", icon: "tv", value: "series")
-            }.padding(.horizontal, 10)
-            Text("媒体源").font(.caption).foregroundStyle(.secondary).padding(.leading, 22).padding(.top, 22).padding(.bottom, 8)
+            }.padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 20)
+            Menu {
+                Button("全部媒体源") { connection.selectSource(nil) }
+                Divider()
+                ForEach(connection.sources) { source in Button(source.name) { connection.selectSource(source.id) } }
+            } label: {
+                HStack {
+                    Image(systemName: "externaldrive")
+                    Text(connection.selectedSource?.name ?? "全部媒体源").lineLimit(1)
+                    Spacer()
+                }.padding(10).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }.menuStyle(.borderlessButton).padding(.horizontal, 16).padding(.bottom, 18).accessibilityLabel("切换媒体源")
             ScrollView {
-                VStack(spacing: 4) {
-                    sourceRow("全部媒体源", icon: "square.stack.3d.up", id: nil)
-                    ForEach(connection.sources) { source in sourceRow(source.name, icon: "externaldrive", id: source.id) }
-                }.padding(.horizontal, 10)
-            }.frame(maxHeight: 150)
-            if connection.client != nil, !library.libraries.isEmpty {
-                Text("我的媒体库").font(.caption).foregroundStyle(.secondary).padding(.leading, 22).padding(.top, 30).padding(.bottom, 8)
-                ScrollView {
-                    VStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
+                    navigationRow("媒体墙", icon: "square.grid.2x2", value: "home")
+                    navigationRow("为你推荐", icon: "sparkles", value: "recommendations")
+                    navigationRow("我的收藏", icon: "heart", value: "favorites")
+                    Text("媒体库").font(.caption).foregroundStyle(.secondary).padding(.leading, 12).padding(.top, 22).padding(.bottom, 6)
+                    navigationRow("全部内容", icon: "square.stack", value: "catalog")
+                    if connection.client == nil {
+                        navigationRow("电影", icon: "film", value: "movies")
+                        navigationRow("剧集", icon: "tv", value: "series")
+                    } else {
                         ForEach(library.libraries) { item in
-                            navigationRow(item.Name, icon: "folder", value: "library:" + item.id)
+                            navigationRow(item.Name, icon: item.Name.contains("剧") ? "tv" : "folder", value: "library:" + item.id)
                         }
-                    }.padding(.horizontal, 10)
-                }
+                    }
+                }.padding(.horizontal, 10)
             }
-            Spacer(minLength: 20)
             Divider().padding(.horizontal, 20)
             HStack {
                 Button { managingSources = true } label: { Label("管理媒体源", systemImage: "externaldrive.badge.plus") }
@@ -163,17 +168,35 @@ struct ContentView: View {
             .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 0.5) }
     }
 
-    private func sourceRow(_ name: String, icon: String, id: UUID?) -> some View {
-        Button { connection.selectSource(id) } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon).frame(width: 22)
-                Text(name).lineLimit(1)
-                Spacer()
-                if connection.selectedSourceID == id { Image(systemName: "checkmark").font(.caption) }
-            }.font(.callout).padding(10).contentShape(Rectangle())
-                .foregroundStyle(connection.selectedSourceID == id ? Theme.accent : .primary)
-                .background(connection.selectedSourceID == id ? Theme.accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 10))
-        }.buttonStyle(.plain)
+    private var recentClient: EmbyClient? {
+        guard let recent = playback.recent else { return nil }
+        return connection.sources.compactMap { connection.clients[$0.id] }.first { recent.belongs(to: $0) }
+    }
+
+    private func returnToPlayback(_ recent: RecentPlayback, client: EmbyClient) -> some View {
+        HStack(spacing: 14) {
+            Button {
+                returnSelection = selection
+                playback.resumeRecent(client: client)
+                selection = "playing"
+            } label: {
+                HStack(spacing: 14) {
+                    PosterView(item: recent.item, client: client, backdrop: true)
+                        .frame(width: 88, height: 50).clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(recent.item.Name).font(.callout.weight(.semibold)).lineLimit(1)
+                        Text("上次看到 " + PlaybackTime.label(recent.position) + " / " + PlaybackTime.label(recent.duration))
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Label("继续观看", systemImage: "play.fill").font(.callout.weight(.medium)).foregroundStyle(Theme.accent)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("继续观看：" + recent.item.Name)
+            Button { playback.clearRecent() } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("收起续播卡片")
+        }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: 0.5) }
+            .padding(.horizontal, 24).padding(.top, 14)
     }
 
     private func browseSource(_ source: SavedMediaSource, destination: String) {
@@ -225,7 +248,10 @@ struct ContentView: View {
                     TextField(selection == "favorites" ? "搜索收藏" : "搜索电影、剧集", text: $search).textFieldStyle(.plain).focused($searchFocused)
                     if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }.help("清除搜索") }
                 }.padding(9).frame(width: 220).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
-                Button { refreshRevision += 1; library.invalidateIndex(); Task { await refresh() } } label: { Image(systemName: "arrow.clockwise") }.help("刷新媒体库")
+                Button { refreshRevision += 1; Task {
+                    if library.filterIndex != nil, let client = connection.client { await library.prepareFilters(client: client, selection: selection, force: true) }
+                    await refresh()
+                } } label: { Image(systemName: "arrow.clockwise") }.help("刷新媒体库")
             }
             Menu {
                 Picker("外观", selection: $appearanceMode) {

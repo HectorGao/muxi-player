@@ -1,7 +1,7 @@
 import Foundation
 
 // Wire models keep Emby's field names so optional server fields stay explicit.
-public struct MediaItem: Decodable, Identifiable, Hashable {
+public struct MediaItem: Codable, Identifiable, Hashable {
     public let Id: String
     public let Name: String
     public var `Type`: String?
@@ -21,6 +21,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable {
     public var DateCreated: String?
     public var SortName: String?
     public var OriginalTitle: String?
+    public var MediaStreams: [MediaStream]?
+    public var Width: Int?
+    public var Height: Int?
+    public var VideoType: String?
+    public var Container: String?
 
     public var id: String { Id }
     public var isContainer: Bool { IsFolder == true || ["Series", "Season", "CollectionFolder", "BoxSet", "Folder"].contains(Type ?? "") }
@@ -34,7 +39,7 @@ public struct MediaItem: Decodable, Identifiable, Hashable {
     }
 }
 
-public struct UserData: Decodable, Hashable {
+public struct UserData: Codable, Hashable {
     public var PlaybackPositionTicks: Int64?
     public var PlayedPercentage: Double?
     public var Played: Bool?
@@ -141,7 +146,7 @@ public struct MediaSource: Decodable, Identifiable {
     }
 }
 
-public struct MediaStream: Decodable, Identifiable {
+public struct MediaStream: Codable, Identifiable, Hashable {
     public let Index: Int
     public let `Type`: String
     public var DisplayTitle: String?
@@ -159,6 +164,11 @@ public struct MediaStream: Decodable, Identifiable {
     public var DeliveryUrl: String?
     public var DeliveryFormat: String?
     public var IsExternalUrl: Bool?
+    public var VideoRange: String?
+    public var VideoRangeType: String?
+    public var ColorTransfer: String?
+    public var Profile: String?
+    public var DvProfile: Int?
     public var id: Int { Index }
     public var label: String { DisplayTitle ?? Title ?? [Language, Codec?.uppercased()].compactMap { $0 }.joined(separator: " · ") }
 }
@@ -167,7 +177,7 @@ public enum PlaybackEngine {
     case avPlayer, mpv
 }
 
-public struct PlaybackSettings: Equatable {
+public struct PlaybackSettings: Codable, Equatable {
     public var audioIndex: Int?
     public var subtitleIndex: Int = -1
     public var maxHeight: Int = 0

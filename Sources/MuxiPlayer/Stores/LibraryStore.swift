@@ -29,6 +29,10 @@ struct LibraryShelf {
     var indexing = false
     var indexedCount = 0
     var indexError: String?
+    var indexUpdatedAt: Date?
+    @ObservationIgnored private let indexCache: LibraryIndexCache
+
+    init(indexCache: LibraryIndexCache? = nil) { self.indexCache = indexCache ?? .shared }
     @ObservationIgnored private var indexScope: String?
     @ObservationIgnored private var indexGeneration = UUID()
     private var favoriteValues: [String: Bool] = [:]
@@ -43,33 +47,39 @@ struct LibraryShelf {
     func resetBrowsing() { filter = LibraryFilter(); invalidateIndex() }
 
     static func canFilter(_ selection: String) -> Bool {
-        selection == "movies" || selection == "series" || selection.hasPrefix("library:")
+        selection == "catalog" || selection == "movies" || selection == "series" || selection.hasPrefix("library:")
     }
 
-    // Country filtering is not shared by the two server APIs; index metadata, never video files.
-    func prepareFilters(client: EmbyClient, selection: String) async {
+    // Incremental server metadata updates; a periodic ID-only pass detects deletions.
+    func prepareFilters(client: EmbyClient, selection: String, force: Bool = false, rebuild: Bool = false) async {
         guard Self.canFilter(selection) else { return }
-        if indexScope == selection, filterIndex != nil { return }
+        let scope = "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)"
+        if !force && !rebuild, indexScope == scope, filterIndex != nil,
+           let indexUpdatedAt, Date().timeIntervalSince(indexUpdatedAt) < 300 { return }
         let token = UUID()
-        indexGeneration = token; indexScope = selection
-        indexing = true; indexedCount = 0; indexError = nil; filterIndex = nil
+        indexGeneration = token; indexScope = scope; indexError = nil
+        let cached = rebuild ? nil : indexCache.load(client: client, scope: selection)
+        filterIndex = cached?.items; indexUpdatedAt = cached?.syncedAt
+        indexedCount = cached?.items.count ?? 0
+        if !force, let cached, Date().timeIntervalSince(cached.syncedAt) < 300 { return }
+        indexing = true
         defer { if indexGeneration == token { indexing = false } }
-        do {
-            var collected: [MediaItem] = []
-            var known = Set<String>()
-            var offset = 0
+        let started = Date()
+        let parent = selection.hasPrefix("library:") ? String(selection.dropFirst(8)) : nil
+        let type = selection == "movies" ? "Movie" : selection == "series" ? "Series" : "Movie,Series,BoxSet"
+        func pages(since: Date? = nil, userSince: Date? = nil, idsOnly: Bool = false) async throws -> [MediaItem] {
+            var result: [MediaItem] = [], known = Set<String>(), offset = 0
             while true {
                 try Task.checkCancellation()
-                let page = try await client.items(parent: selection.hasPrefix("library:") ? String(selection.dropFirst(8)) : nil,
-                                                  type: selection == "movies" ? "Movie" : selection == "series" ? "Series" : "Movie,Series,BoxSet",
-                                                  start: offset, limit: 500, sortBy: "SortName", metadataOnly: true)
-                guard indexGeneration == token, !Task.isCancelled else { return }
+                let page = try await client.items(parent: parent, type: type, start: offset, limit: 500,
+                                                  sortBy: "SortName", metadataOnly: true, savedSince: since,
+                                                  userSavedSince: userSince, idsOnly: idsOnly)
+                guard indexGeneration == token else { throw CancellationError() }
                 let fresh = page.Items.filter { known.insert($0.id).inserted }
-                collected.append(contentsOf: fresh)
-                offset += page.Items.count
-                indexedCount = collected.count
+                result.append(contentsOf: fresh); offset += page.Items.count
+                if cached == nil { indexedCount = result.count }
                 if let total = page.TotalRecordCount, offset >= total {
-                    guard collected.count >= total else { throw EmbyError.invalidResponse }
+                    guard result.count >= total else { throw EmbyError.invalidResponse }
                     break
                 }
                 if page.Items.isEmpty {
@@ -78,9 +88,36 @@ struct LibraryShelf {
                 }
                 guard !fresh.isEmpty else { throw EmbyError.invalidResponse }
             }
-            filterIndex = collected
+            return result
+        }
+        do {
+            var collected: [MediaItem]
+            var reconciledAt = cached?.reconciledAt ?? started
+            if let cached {
+                // Overlap avoids missing changes made while the previous paginated pass was running.
+                let since = cached.syncedAt.addingTimeInterval(-300)
+                var merged = Dictionary(uniqueKeysWithValues: cached.items.map { ($0.id, $0) })
+                let changed = try await pages(since: since)
+                let userChanged = try await pages(userSince: since)
+                for item in changed + userChanged { merged[item.id] = item }
+                if started.timeIntervalSince(cached.reconciledAt) > 86_400 || force {
+                    let ids = Set(try await pages(idsOnly: true).map(\.id))
+                    merged = merged.filter { ids.contains($0.key) }
+                    // A new item outside a server's change window still receives full metadata.
+                    if !ids.isSubset(of: Set(merged.keys)) { collected = try await pages() }
+                    else { collected = Array(merged.values) }
+                    reconciledAt = started
+                } else { collected = Array(merged.values) }
+            } else { collected = try await pages() }
+            try Task.checkCancellation()
+            guard indexGeneration == token else { return }
+            let entry = LibraryIndexCache.Entry(items: collected, syncedAt: started, reconciledAt: reconciledAt)
+            try indexCache.save(entry, client: client, scope: selection)
+            filterIndex = collected; indexUpdatedAt = started; indexedCount = collected.count
         } catch {
-            if indexGeneration == token, !Task.isCancelled { indexError = "筛选信息读取失败，请重试：" + EmbyError.message(error) }
+            if indexGeneration == token, !Task.isCancelled {
+                indexError = (cached == nil ? "筛选信息读取失败：" : "暂用本机索引，同步失败：") + EmbyError.message(error)
+            }
         }
     }
 
@@ -203,9 +240,9 @@ struct LibraryShelf {
         if Self.canFilter(selection), path.isEmpty {
             let requested = filter
             if requested.isActive {
-                if filterIndex == nil || indexScope != selection { await prepareFilters(client: client, selection: selection) }
+                if filterIndex == nil || indexScope != "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)" { await prepareFilters(client: client, selection: selection) }
                 try Task.checkCancellation()
-                guard let filterIndex, indexScope == selection else { throw EmbyError.invalidResponse }
+                guard let filterIndex, indexScope == "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)" else { throw EmbyError.invalidResponse }
                 let matches = requested.apply(to: filterIndex, search: search)
                 return ItemPage(Items: Array(matches.dropFirst(start).prefix(60)), TotalRecordCount: matches.count)
             }
@@ -221,7 +258,7 @@ struct LibraryShelf {
         if selection == "recommendations" {
             return try await client.items(type: "Movie,Series", start: start, sortBy: "CommunityRating,DateCreated", descending: true, unplayedOnly: true)
         }
-        return try await client.items(type: selection == "series" ? "Series" : "Movie", start: start)
+        return try await client.items(type: selection == "catalog" ? "Movie,Series,BoxSet" : selection == "series" ? "Series" : "Movie", start: start)
     }
 
     private func captured<T>(_ operation: () async throws -> T) async -> Result<T, Error> {

@@ -62,6 +62,12 @@ info = {
     'CFBundleIconFile': 'AppIcon',
     'CFBundleShortVersionString': sys.argv[2].split('-')[0], 'CFBundleVersion': sys.argv[3],
     'MuxiReleaseVersion': sys.argv[2],
+    'SUFeedURL': 'https://raw.githubusercontent.com/HectorGao/muxi-player/main/appcast.xml',
+    'SUPublicEDKey': open('Resources/UpdatePublicKey.txt').read().strip(),
+    'SUEnableAutomaticChecks': True, 'SUAutomaticallyUpdate': True,
+    'SUVerifyUpdateBeforeExtraction': True,
+    'SUEnableSystemProfiling': False,
+
     'MuxiBuildCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
     'LSMinimumSystemVersion': '14.0', 'NSPrincipalClass': 'NSApplication',
     'NSHighResolutionCapable': True,
@@ -72,6 +78,9 @@ with open(sys.argv[1], 'wb') as stream:
     plistlib.dump(info, stream)
 PY
 python3 "$ROOT_DIR/script/bundle_mpv_runtime.py" --app-bundle "$APP_BUNDLE"
+SPARKLE_FRAMEWORK="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+ditto "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+ditto "$ROOT_DIR/ThirdParty/Sparkle" "$APP_BUNDLE/Contents/Resources/ThirdParty/Sparkle"
 codesign --force --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 

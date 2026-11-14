@@ -3,6 +3,21 @@ import Observation
 import MuxiCore
 import CryptoKit
 
+struct RecentPlayback: Codable {
+    var item: MediaItem
+    let baseURL: URL
+    let userID: String
+    let serverKind: MediaServerKind
+    var position: Double
+    var duration: Double
+    var sourceID: String?
+    var settings: PlaybackSettings
+
+    func belongs(to client: EmbyClient) -> Bool {
+        baseURL == client.baseURL && userID == client.connection?.user.Id && serverKind == client.serverKind
+    }
+}
+
 @MainActor @Observable final class PlaybackController {
     @ObservationIgnored let engine: MPVEngine?
     var item: MediaItem?
@@ -27,6 +42,8 @@ import CryptoKit
     var syncError: String?
     var queue: [MediaItem] = []
     var revision = 0
+    private(set) var recent: RecentPlayback?
+    @ObservationIgnored private var recentQueue: [MediaItem] = []
     @ObservationIgnored private var client: EmbyClient?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var timeoutTask: Task<Void, Never>?
@@ -44,6 +61,7 @@ import CryptoKit
 
     init(headless: Bool = false, resumeDefaults: UserDefaults = .standard) {
         self.resumeDefaults = resumeDefaults
+        if let data = resumeDefaults.data(forKey: "recentPlayback") { recent = try? JSONDecoder().decode(RecentPlayback.self, from: data) }
         do { engine = try MPVEngine(headless: headless) }
         catch { engine = nil; self.error = error.localizedDescription }
         engine?.onWarning = { [weak self] message in self?.pendingExternalIndex = nil; self?.pendingSeek = nil; self?.syncError = message }
@@ -137,6 +155,27 @@ import CryptoKit
     func playNext() {
         guard let nextItem, let client else { return }
         play(nextItem, client: client, queue: queue)
+    }
+
+    func resumeRecent(client: EmbyClient) {
+        guard let recent, recent.belongs(to: client) else { return }
+        stopCurrent()
+        sources = []; queue = recentQueue; settings = recent.settings
+        load(item: recent.item, client: client, seconds: recent.position, sourceID: recent.sourceID)
+    }
+
+    func clearRecent() {
+        recent = nil; recentQueue = []; resumeDefaults.removeObject(forKey: "recentPlayback")
+    }
+
+    private func rememberPlayback() {
+        guard var item, let client else { return }
+        item.MediaStreams = nil
+        recent = RecentPlayback(item: item, baseURL: client.baseURL, userID: client.connection?.user.Id ?? "",
+                                serverKind: client.serverKind, position: position, duration: duration,
+                                sourceID: plan?.source.Id, settings: settings)
+        recentQueue = queue
+        if let data = try? JSONEncoder().encode(recent) { resumeDefaults.set(data, forKey: "recentPlayback") }
     }
 
     private func load(item: MediaItem, client: EmbyClient, seconds: Double, sourceID: String?, autoplay: Bool = true) {
@@ -240,6 +279,7 @@ import CryptoKit
 
     private func enqueueReport(_ event: String) {
         guard let item, let plan, let client, started else { return }
+        rememberPlayback()
         if event == "Progress" { guard !reportingProgress else { return }; reportingProgress = true }
         let ticks = PlaybackTime.ticks(position), paused = pendingPause ?? engine?.paused ?? true
         let resumeKey = resumeKey(item: item, client: client), seconds = Double(ticks) / 10_000_000
@@ -273,6 +313,7 @@ import CryptoKit
             let previous = reportTask
             reportTask = Task { await previous?.value; try? await client.stopTranscoding(sessionID: plan.sessionID) }
         }
+        if item != nil { rememberPlayback() }
         started = false; pendingPause = nil; pendingSeek = nil; engine?.stop()
         if clearPlan { plan = nil; mpvTracks = []; externalIndices = [:]; pendingExternalIndex = nil }
         isPlaying = false; loading = false; buffering = false

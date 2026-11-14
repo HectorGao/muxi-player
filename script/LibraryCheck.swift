@@ -36,7 +36,7 @@ import MuxiCore
     }
 
     static func verify(client: EmbyClient, kind: MediaServerKind) async throws {
-        let store = LibraryStore()
+        let store = LibraryStore(indexCache: LibraryIndexCache(directory: URL(filePath: ".local/library-check-" + UUID().uuidString)))
         await store.refresh(client: client, selection: "home", search: "")
         try check(store.error == nil && !store.loading, "\(kind.label): home failed to finish")
         try check(store.libraries.count == 2 && store.resume.first?.id == "movie", "\(kind.label): libraries/resume missing")

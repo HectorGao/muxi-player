@@ -23,6 +23,22 @@ python3 script/smoke_server.py --ffmpeg /path/to/ffmpeg
 
 多源持久化测试需再启动第二个替身 `python3 script/smoke_server.py --port 18797 --ffmpeg /path/to/ffmpeg`，然后运行 `bash script/check_sources.sh`。测试使用独立钥匙串 service 和偏好域，不读取用户媒体源。
 
+增量索引检查：`./script/check_index.sh`，验证磁盘复用、变化合并、删除核对、离线保留与账号隔离。索引只保存元数据，不保存令牌或媒体地址。按源 / 账号 / 分类隔离；5 分钟内复用缓存，随后使用 Emby / Jellyfin 的 `MinDateLastSaved` 与 `MinDateLastSavedForUser` 增量查询，每天或手动同步时读取轻量成员列表核对删除。服务端不支持这些参数时保留旧索引并提示错误，用户可重建；不要把不完整分页写成完整索引。
+
+## 自动更新发布
+
+Sparkle 2.10.1 由 SwiftPM 固定下载。签名密钥位于本机登录钥匙串的 `com.hectorgao.muxi-player.updates` 账户，仓库只含 `Resources/UpdatePublicKey.txt`；不得导出或提交私钥。安装包在解压前验证 Ed25519 签名。自动下载后等待应用退出安装；保留应用原有进度上报流程。
+
+每次发布先提交代码、构建并核对全部 Release 附件，再运行：
+
+```sh
+./script/publish_appcast.sh VERSION dist/vVERSION/release/MuxiPlayer-VERSION-macOS-arm64.zip
+```
+
+检查生成的 `appcast.xml` 中版本、URL、长度及签名，确认公开下载成功后单独提交更新源。`SUFeedURL` 指向主分支的原始 `appcast.xml`。CI 没有签名密钥，仅构建、测试和打包，不能自动发布未经签名的更新源。后续版本沿用此钥匙串密钥并单调递增 CFBundleVersion；丢失私钥会影响 ad-hoc 版本的更新链路，需妥善备份登录钥匙串。历史 alpha.5 及更早版本需要手动安装一次。
+
+更新设置与签名流程依据 [Sparkle 官方文档](https://sparkle-project.org/documentation/)，增量参数依据 [Emby Items API](https://dev.emby.media/reference/RestAPI/ItemsService/getItems.html) 与 [Jellyfin OpenAPI](https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json)。
+
 - `Sources/MuxiCore`：协议模型、请求、播放协商与地址安全。
 - `Sources/MuxiPlayer`：SwiftUI 界面、多源保存、媒体库、libmpv 生命周期。
 - `Tests/MuxiCoreTests`：协议与模型测试。

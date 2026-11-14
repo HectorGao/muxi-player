@@ -126,6 +126,7 @@ struct ConnectView: View {
 struct SettingsView: View {
     @Bindable var connection: ConnectionStore
     let playback: PlaybackController
+    @ObservedObject var updater: AppUpdater
     @ViewState private var managingSources = false
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("ambientMotion") private var ambientMotion = true
@@ -145,6 +146,7 @@ struct SettingsView: View {
                 Text(reduceMotion ? "系统已开启“减少动态效果”，背景保持静止。" : "播放时背景保持静止，并遵循系统“减少动态效果”设置。")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            UpdateSettingsView(updater: updater)
             Section("媒体源") {
                 LabeledContent("已保存", value: "\(connection.sources.count) 个媒体源")
                 Button("管理媒体源") { managingSources = true }
@@ -156,7 +158,7 @@ struct SettingsView: View {
                 Text("libmpv 在本机播放并切换音轨、字幕；降低分辨率或码率仍需服务器允许转码。")
 
             }.foregroundStyle(.secondary)
-        }.formStyle(.grouped).frame(width: 540, height: 560)
+        }.formStyle(.grouped).frame(width: 580, height: 680)
             .sheet(isPresented: $managingSources) { SourceManagerView(connection: connection, playback: playback) }
     }
 }

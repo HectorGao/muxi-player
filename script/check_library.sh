@@ -6,6 +6,6 @@ mkdir -p .local
 swift build --build-system native --target MuxiCore
 BUILD_DIR="$(swift build --build-system native --show-bin-path)"
 swiftc -parse-as-library -I "$BUILD_DIR/Modules" \
-  script/LibraryCheck.swift Sources/MuxiPlayer/Stores/LibraryStore.swift \
+  script/LibraryCheck.swift Sources/MuxiPlayer/Stores/LibraryStore.swift Sources/MuxiPlayer/Stores/LibraryIndexCache.swift \
   "$BUILD_DIR"/MuxiCore.build/*.o -o .local/library-check
 .local/library-check

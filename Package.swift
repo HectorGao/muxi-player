@@ -27,12 +27,13 @@ let package = Package(
     name: "MuxiPlayer",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "MuxiPlayer", targets: ["MuxiPlayer"])],
+    dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1")],
     targets: [
         .target(name: "MuxiCore"),
         .target(name: "CMPV", publicHeadersPath: "include"),
         .executableTarget(
             name: "MuxiPlayer",
-            dependencies: ["MuxiCore", "CMPV"],
+            dependencies: ["MuxiCore", "CMPV", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [
                 .linkedLibrary(mpvLinkName),
                 .linkedFramework("OpenGL"),

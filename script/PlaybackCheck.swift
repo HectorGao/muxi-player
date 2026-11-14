@@ -41,7 +41,10 @@ import MuxiCore
         let connection = try await login.authenticate(username: "demo", password: "demo")
         let client = EmbyClient(baseURL: base, deviceID: "automated-playback-check", connection: connection)
         let item = try await client.item(id: "mkv")
-        let controller = PlaybackController(headless: true)
+        let bookmarkDomain = "com.hectorgao.muxi-player.playback-check.\(UUID())"
+        let bookmarkDefaults = UserDefaults(suiteName: bookmarkDomain)!
+        defer { bookmarkDefaults.removePersistentDomain(forName: bookmarkDomain) }
+        let controller = PlaybackController(headless: true, resumeDefaults: bookmarkDefaults)
         guard let engine = controller.engine else { throw failure(controller.error ?? "No libmpv engine") }
         controller.volume = 0
         controller.play(item, client: client, fromStart: true)
@@ -134,6 +137,18 @@ import MuxiCore
         try check(controller.item == nil && controller.plan == nil && !controller.isPlaying, "Stop did not clear controller state")
         try check(controller.syncError == nil, "Progress failed: \(controller.syncError ?? "")")
         print("PASS: actual 480p HLS, 2 Mbps request, seek/resume, 1.5x, rapid pause/quality change, correct pause report, stop/sync")
+
+        try check(controller.recent?.item.id == "mkv" && (controller.recent?.position ?? 0) > 0,
+                  "Stopping must preserve a return-to-playback bookmark")
+        let resumePosition = controller.recent!.position
+        controller.resumeRecent(client: client)
+        try await wait("resume card restores media") { !controller.loading && controller.isPlaying && abs(controller.position - resumePosition) < 2 }
+        try check(controller.plan?.source.Id == controller.recent?.sourceID, "Resume card lost selected source")
+        await controller.stop()
+        print("PASS: stopped playback bookmark restores source, settings and position")
+        let bookmarked = PlaybackController(headless: true, resumeDefaults: bookmarkDefaults)
+        try check(bookmarked.recent?.item.id == item.id && abs((bookmarked.recent?.position ?? 0) - resumePosition) < 2,
+                  "Return-to-playback card must survive controller recreation")
 
         let mp4 = try await client.item(id: "movie")
         controller.play(mp4, client: client, fromStart: true)

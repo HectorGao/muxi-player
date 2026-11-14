@@ -33,6 +33,8 @@ jobs:
           echo "MUXI_MPV_LIB_DIR=$GITHUB_WORKSPACE/.local/release-materials/runtime" >> "$GITHUB_ENV"
       - name: Test Emby protocol and playback requests
         run: ./script/test.sh
+      - name: Verify persistent and incremental metadata index
+        run: ./script/check_index.sh
       - name: Check loopback media fixture
         run: python3 script/smoke_server.py --self-test
       - name: Build and verify Apple Silicon app

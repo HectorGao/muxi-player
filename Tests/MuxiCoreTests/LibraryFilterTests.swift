@@ -39,3 +39,28 @@ struct LibraryFilterTests {
         }
     }
 }
+
+struct MediaSpecificationFilterTests {
+    @Test func specificationsUseMetadataAndKeepUnknownsExplicit() throws {
+        let items = try JSONDecoder().decode([MediaItem].self, from: Data(#"""
+        [
+          {"Id":"uhd","Name":"4K","Type":"Movie","ProductionYear":2024,"ProductionLocations":["United States"],"VideoType":"BluRay","MediaStreams":[{"Index":0,"Type":"Video","Width":3840,"Height":1600,"VideoRangeType":"DOVIWithHDR10","DvProfile":8},{"Index":1,"Type":"Audio","Codec":"truehd","Profile":"Atmos"}]},
+          {"Id":"hd","Name":"HD","Type":"Series","ProductionYear":2019,"ProductionLocations":["Japan"],"MediaStreams":[{"Index":0,"Type":"Video","Width":1920,"Height":800,"VideoRange":"SDR"},{"Index":1,"Type":"Audio","Codec":"dts","Profile":"DTS-HD MA"}]},
+          {"Id":"unknown","Name":"Unknown"}
+        ]
+        """#.utf8))
+        var f = LibraryFilter()
+        f.resolution = .uhd; f.videoRange = .dolbyVision; f.audio = .atmos; f.region = .western; f.decade = 2020
+        #expect(f.apply(to: items).map(\.id) == ["uhd"])
+        f.resolution = .bluray
+        #expect(f.apply(to: items).map(\.id) == ["uhd"])
+        f = LibraryFilter(); f.resolution = .fullHD; f.videoRange = .sdr; f.audio = .dts; f.kind = "Series"; f.region = .japanKorea
+        #expect(f.apply(to: items).map(\.id) == ["hd"])
+        f.audio = .lossless
+        #expect(f.apply(to: items).map(\.id) == ["hd"])
+        f = LibraryFilter(); f.videoRange = .unknown; f.resolution = .unknown
+        #expect(f.apply(to: items).map(\.id) == ["unknown"])
+        f.videoRange = .sdr
+        #expect(f.apply(to: items).isEmpty)
+    }
+}

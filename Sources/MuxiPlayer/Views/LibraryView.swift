@@ -13,6 +13,7 @@ struct LibraryView: View {
     let more: () -> Void
     let retry: () -> Void
     @ViewState private var showingFilters = false
+    @ViewState private var yearText = ""
     private var filtering: Bool { library.path.isEmpty && LibraryStore.canFilter(selection) && library.filter.isActive }
 
     var body: some View {
@@ -55,7 +56,7 @@ struct LibraryView: View {
                     HStack { Spacer(); Button(library.loadingMore ? "正在加载…" : "加载更多", action: more).disabled(library.loadingMore); Spacer() }.padding()
                 }
             }.padding(30)
-        }
+        }.onChange(of: library.indexUpdatedAt) { _, _ in if library.filter.isActive { retry() } }
     }
 
     private var browseControls: some View {
@@ -78,37 +79,83 @@ struct LibraryView: View {
             if showingFilters {
                 VStack(alignment: .leading, spacing: 14) {
                     if library.indexing {
-                        HStack { ProgressView().controlSize(.small); Text("正在整理整个分类的筛选信息… 已读取 \(library.indexedCount) 项") }
+                        HStack { ProgressView().controlSize(.small); Text((library.filterIndex == nil ? "正在建立筛选索引… 已读取 " : "正在同步索引变更… 本机已有 ") + "\(library.indexedCount) 项") }
                             .font(.callout)
-                    } else if let error = library.indexError {
-                        errorNotice(error) { Task { await library.prepareFilters(client: client, selection: selection) } }
-                    } else if let index = library.filterIndex {
-                        HStack(spacing: 16) {
-                            Picker("年份", selection: $library.filter.year) {
-                                Text("全部年份").tag(Int?.none)
-                                ForEach(Array(Set(index.compactMap(\.ProductionYear))).sorted(by: >), id: \.self) { Text(String($0)).tag(Optional($0)) }
+                    }
+                    if let error = library.indexError {
+                        errorNotice(error) { Task { await library.prepareFilters(client: client, selection: selection, force: true) } }
+                    }
+                    if let index = library.filterIndex {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], alignment: .leading, spacing: 16) {
+                            Picker("内容", selection: $library.filter.kind) {
+                                Text("全部内容").tag(String?.none)
+                                Text("电影").tag(Optional("Movie")); Text("剧集").tag(Optional("Series")); Text("合集").tag(Optional("BoxSet"))
+                            }
+                            Picker("分辨率", selection: $library.filter.resolution) {
+                                Text("全部").tag(LibraryResolution?.none)
+                                ForEach(LibraryResolution.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                            }
+                            Picker("画面", selection: $library.filter.videoRange) {
+                                Text("全部").tag(LibraryVideoRange?.none)
+                                ForEach(LibraryVideoRange.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                            }
+                            Picker("音频", selection: $library.filter.audio) {
+                                Text("全部").tag(LibraryAudio?.none)
+                                ForEach(LibraryAudio.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                            }
+                            Picker("地区", selection: $library.filter.region) {
+                                Text("全部地区").tag(LibraryRegion?.none)
+                                ForEach(LibraryRegion.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                            }
+                            Picker("国家", selection: $library.filter.country) {
+                                Text("全部国家").tag(String?.none)
+                                ForEach(Array(Set(index.flatMap { $0.ProductionLocations ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
+                                Text("未标注").tag(Optional(""))
+                            }
+                            Picker("年代", selection: $library.filter.decade) {
+                                Text("全部年代").tag(Int?.none)
+                                ForEach(Array(stride(from: Calendar.current.component(.year, from: Date()) / 10 * 10, through: 1980, by: -10)), id: \.self) {
+                                    Text("\($0, format: .number.grouping(.never)) 年代").tag(Optional($0))
+                                }
+                                Text("1980 年前").tag(Optional(-1))
+                            }.onChange(of: library.filter.decade) { _, decade in if decade != nil { library.filter.year = nil } }
+                            HStack {
+                                Text("年份")
+                                TextField("输入年份，如 2024", text: $yearText)
+                                    .textFieldStyle(.roundedBorder).accessibilityLabel("指定年份")
+                                    .onChange(of: yearText) { _, text in
+                                        let digits = String(text.filter(\.isNumber).prefix(4))
+                                        if digits != text { yearText = digits }
+                                        if digits.isEmpty { library.filter.year = nil }
+                                        else if digits.count == 4, let year = Int(digits), year > 1800 {
+                                            library.filter.decade = nil; library.filter.year = year
+                                        }
+                                    }
+                                    .onChange(of: library.filter.year) { _, year in yearText = year.map(String.init) ?? "" }
+                                    .onAppear { yearText = library.filter.year.map(String.init) ?? "" }
                             }
                             Picker("类型", selection: $library.filter.genre) {
                                 Text("全部类型").tag(String?.none)
                                 ForEach(Array(Set(index.flatMap { $0.Genres ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
                             }
-                        }
-                        HStack(spacing: 16) {
-                            Picker("国家 / 地区", selection: $library.filter.country) {
-                                Text("全部国家 / 地区").tag(String?.none)
-                                ForEach(Array(Set(index.flatMap { $0.ProductionLocations ?? [] })).sorted(), id: \.self) { Text($0).tag(Optional($0)) }
-                                if index.contains(where: { ($0.ProductionLocations ?? []).isEmpty }) { Text("未标注").tag(Optional("")) }
-                            }
                             Picker("观看状态", selection: $library.filter.played) {
                                 Text("全部").tag(Bool?.none)
-                                Text("未观看").tag(Optional(false))
-                                Text("已观看").tag(Optional(true))
+                                Text("未观看").tag(Optional(false)); Text("已观看").tag(Optional(true))
                             }
                         }
-                        Text("已整理 \(index.count) 项。按服务器提供的年份、类型与国家筛选；缺失信息列为未标注，不推测影片产地。")
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("本机索引 · \(index.count) 项")
+                                if let date = library.indexUpdatedAt { Text("同步于 " + date.formatted(date: .abbreviated, time: .shortened)) }
+                            }.font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Menu("同步索引") {
+                                Button("增量同步") { Task { await library.prepareFilters(client: client, selection: selection, force: true) } }
+                                Button("重建完整索引") { Task { await library.prepareFilters(client: client, selection: selection, force: true, rebuild: true) } }
+                            }.fixedSize().disabled(library.indexing)
+                        }
+                        Text("依据媒体源元数据筛选；未提供的画质、音频与产地列为未标注。蓝光指源格式。")
                             .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Button("重新读取筛选信息") { Task { await library.prepareFilters(client: client, selection: selection) } }
                     }
                 }.padding(18).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
                     .task { await library.prepareFilters(client: client, selection: selection) }
