@@ -146,10 +146,11 @@ private struct SearchableFilterList: View {
     let label: (String) -> String
     let choose: (String?) -> Void
     @ViewState private var search = ""
+    @FocusState private var searchFocused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).font(.headline)
-            TextField("搜索名称，支持中文或英文", text: $search).textFieldStyle(.roundedBorder)
+            TextField("搜索名称", text: $search).textFieldStyle(.roundedBorder).focused($searchFocused)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 3) {
                     entry("全部", value: nil)
@@ -158,7 +159,7 @@ private struct SearchableFilterList: View {
                     }
                 }
             }.frame(height: 280)
-        }.padding(18).frame(width: 320)
+        }.padding(18).frame(width: 320).task { searchFocused = true }
     }
     private func entry(_ name: String, value: String?) -> some View {
         Button { choose(value) } label: {
