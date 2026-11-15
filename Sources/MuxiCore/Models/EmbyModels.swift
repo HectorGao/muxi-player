@@ -28,6 +28,8 @@ public struct MediaItem: Codable, Identifiable, Hashable {
     public var Container: String?
     public var ProviderIds: [String: String]?
     public var RemoteImageURL: URL?
+    public var ExternalRatings: MovieRatingSet?
+    public var ChartRanks: [String: Int]?
 
     public init(id: String, name: String, type: String = "Movie") {
         Id = id; Name = name; Type = type

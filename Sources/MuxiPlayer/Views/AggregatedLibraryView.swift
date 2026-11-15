@@ -67,11 +67,12 @@ private struct SourceLibrarySection: View {
     let client: EmbyClient
     let selection: String
     let search: String
-    let library: LibraryStore
+    @Bindable var library: LibraryStore
     let open: (MediaItem, SavedMediaSource, LibraryStore, EmbyClient) -> Void
     let browse: (SavedMediaSource, String) -> Void
     let posters: (UUID, [MediaItem]) -> Void
     private var home: Bool { selection == "home" && search.isEmpty }
+    @ViewState private var ratingRevision = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -83,6 +84,10 @@ private struct SourceLibrarySection: View {
                 }
                 Spacer()
                 Button("浏览此源") { browse(source, "home") }.buttonStyle(.bordered)
+            }
+            if LibraryStore.canFilter(selection), library.path.isEmpty {
+                MovieRatingControls(filter: $library.filter)
+                if !library.ratingNotice.isEmpty { Text(library.ratingNotice).font(.caption).foregroundStyle(.secondary) }
             }
             if library.loading { ProgressView("正在读取媒体库…") }
             if let error = library.error {
@@ -123,6 +128,19 @@ private struct SourceLibrarySection: View {
         }.padding(22).background(Theme.surface.opacity(0.42), in: RoundedRectangle(cornerRadius: 22))
             .overlay { RoundedRectangle(cornerRadius: 22).stroke(Theme.border, lineWidth: 0.5) }
             .onChange(of: library.recommendations, initial: true) { _, items in posters(source.id, items) }
+            .onChange(of: library.filter) { _, _ in
+                Task { await library.refresh(client: client, selection: selection, search: search) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .muxiMovieRatingsUpdated)) { _ in
+                if library.filter.sort.usesExternalRatings || library.filter.chart != nil { ratingRevision += 1 }
+            }
+            .task(id: ratingRevision) {
+                guard ratingRevision > 0 else { return }
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                    if !library.loading { await library.refresh(client: client, selection: selection, search: search) }
+                } catch { }
+            }
     }
 
     private func card(_ item: MediaItem, landscape: Bool = false) -> some View {

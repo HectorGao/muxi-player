@@ -12,7 +12,7 @@
 
 ## 当前基础
 
-macOS Apple Silicon 预览版已提供 Emby / Jellyfin 接入、媒体墙、搜索、规则推荐、收藏、分类筛选、libmpv 播放、轨道选择、续播和独立双全屏。alpha.8 增加苹果 CMS JSON 采集源、订阅导入、默认公开片库、源测活、搜索结果缓存与有来源的评分补全。提供版本化 DMG / ZIP、源码与校验值。真实 Jellyfin、Intel 及 Windows 仍需单独验收。
+macOS Apple Silicon 预览版已提供 Emby / Jellyfin 接入、媒体墙、搜索、规则推荐、收藏、分类筛选、libmpv 播放、轨道选择、续播和独立双全屏。alpha.10 提供七个经短时解码抽样的社区默认源、IMDb 与豆瓣双评分、分站评分排序及两站 Top 250 榜单筛选。提供版本化 DMG / ZIP、源码与校验值。真实 Jellyfin、Intel 及 Windows 仍需单独验收。
 
 | 优先级 | 待更新内容 | 完成标准 |
 | --- | --- | --- |

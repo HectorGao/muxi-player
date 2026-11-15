@@ -29,13 +29,27 @@ struct OnlineLibrarySection: View {
     let revision: Int
     let open: (OnlineItem, OnlineSource) -> Void
     @ViewState private var lastRevision = 0
+    @ViewState private var filter = LibraryFilter()
+    @ViewState private var prepared: [MediaItem] = []
+    @ViewState private var ratingNotice = ""
+    @ViewState private var preparing = false
+    @ViewState private var ratingRevision = 0
     private var state: OnlineLibraryStore.State { store.state(source, search: search) }
-    private var items: [OnlineItem] {
+    private var rawItems: [OnlineItem] {
         var items = selection == "favorites" ? store.favorites.filter { $0.sourceID == source.id } : state.items
         if !search.isEmpty, selection == "favorites" { items = items.filter { $0.media.Name.localizedStandardContains(search) } }
         if selection == "series" { items = items.filter { $0.media.Type == "Series" } }
         if selection == "movies" { items = items.filter { $0.media.Type == "Movie" } }
         return items
+    }
+    private var items: [OnlineItem] {
+        let rows = Dictionary(rawItems.map { ($0.media.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let values = prepared.isEmpty ? rawItems.map(\.media) : prepared
+        return filter.apply(to: values).compactMap { media in
+            guard var row = rows[media.id] else { return nil }
+            row.media = media
+            return row
+        }
     }
 
     var body: some View {
@@ -43,7 +57,7 @@ struct OnlineLibrarySection: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(source.name).font(.title2.weight(.semibold))
-                    Text(source.kind == .archive ? "公开影视档案 · 直接播放" : "苹果 CMS · 在线采集接口").font(.caption).foregroundStyle(.secondary)
+                    Text(source.kind == .archive ? "公开影视档案 · 直接播放" : "第三方社区源 · 苹果 CMS").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if state.fromCache { Text("本机缓存").font(.caption).foregroundStyle(.secondary) }
@@ -52,6 +66,13 @@ struct OnlineLibrarySection: View {
                     Button("检查更新") { Task { await store.load(source, search: search, force: true) } }.disabled(state.loading)
                 }
             }
+            if selection != "home" || !search.isEmpty {
+                MovieRatingControls(filter: $filter)
+                Text("排序与榜单筛选应用于本机已载入的 \(rawItems.count) 项，可搜索片名或加载更多扩大范围。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if preparing { ProgressView("正在整理评分与榜单…").controlSize(.small) }
+                if !ratingNotice.isEmpty { Text(ratingNotice).font(.caption).foregroundStyle(.secondary) }
+            }
             if let error = state.error, selection != "favorites" {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.secondary)
@@ -59,7 +80,7 @@ struct OnlineLibrarySection: View {
                     Button("重试") { Task { await store.load(source, search: search, force: true) } }
                 }
             }
-            if items.isEmpty, !state.loading, state.error == nil { Text(selection == "favorites" ? "喜欢的影片会保存在这里。" : "这个源暂时没有匹配的影片。").font(.callout).foregroundStyle(.secondary) }
+            if items.isEmpty, !state.loading, state.error == nil { Text(filter.chart != nil ? "已载入内容中没有匹配的榜单影片，可搜索片名或加载更多。" : selection == "favorites" ? "喜欢的影片会保存在这里。" : "这个源暂时没有匹配的影片。").font(.callout).foregroundStyle(.secondary) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 145, maximum: 185), spacing: 20)], alignment: .leading, spacing: 24) {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
@@ -103,6 +124,32 @@ struct OnlineLibrarySection: View {
                 lastRevision = revision
                 await store.load(source, search: search, force: force)
             } catch { }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .muxiMovieRatingsUpdated)) { _ in
+            if filter.sort.usesExternalRatings || filter.chart != nil { ratingRevision += 1 }
+        }
+        .task(id: [AnyHashable(rawItems), AnyHashable(filter), AnyHashable(ratingRevision)]) {
+            prepared = []; ratingNotice = ""
+            guard filter.sort.usesExternalRatings || filter.chart != nil else { preparing = false; return }
+            preparing = true
+            do {
+                if ratingRevision > 0 { try await Task.sleep(for: .seconds(1)) }
+                let result = await MovieRatings.shared.enriched(rawItems.map(\.media), chart: filter.chart, sort: filter.sort)
+                try Task.checkCancellation()
+                prepared = result.items; ratingNotice = result.notice; preparing = false
+            } catch { if !Task.isCancelled { preparing = false } }
+        }
+    }
+}
+
+struct MovieRatingControls: View {
+    @Binding var filter: LibraryFilter
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("排序", selection: $filter.sort) {
+                ForEach(LibrarySort.allCases, id: \.self) { Text($0.label).tag($0) }
+            }.frame(width: 270)
+            FilterOptionsRow(title: "榜单", selected: $filter.chart, options: MovieChartKind.allCases.map { ($0.label, $0) })
         }
     }
 }

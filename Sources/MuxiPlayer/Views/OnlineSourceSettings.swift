@@ -46,7 +46,7 @@ struct OnlineSourceSettings: View {
                     Task { await store.importSubscription(subscription); importing = false }
                 }.disabled(subscription.isEmpty || importing)
             }
-            Text("默认公开源可随时关闭。采集接口独立测活，失败后暂缓搜索并自动恢复。接口配置保存在钥匙串。")
+            Text("默认源包含公开档案与第三方社区接口，可随时关闭。接口独立测活，失败后暂缓搜索并自动恢复。配置保存在钥匙串。")
                 .font(.caption).foregroundStyle(.secondary)
             if let error = store.error { Text(error).font(.caption).foregroundStyle(.red) }
         }.disabled(store.saving || !store.ready)

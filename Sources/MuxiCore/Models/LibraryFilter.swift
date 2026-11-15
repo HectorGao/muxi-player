@@ -1,13 +1,15 @@
 import Foundation
 
 public enum LibrarySort: String, CaseIterable {
-    case added, newest, oldest, rating, name
+    case added, newest, oldest, rating, imdbRating, doubanRating, name
     public var label: String {
         switch self {
         case .added: return "最近添加"
         case .newest: return "年份从新到旧"
         case .oldest: return "年份从旧到新"
-        case .rating: return "评分从高到低"
+        case .rating: return "媒体库评分从高到低"
+        case .imdbRating: return "IMDb 从高到低"
+        case .doubanRating: return "豆瓣从高到低"
         case .name: return "名称 A–Z"
         }
     }
@@ -15,11 +17,12 @@ public enum LibrarySort: String, CaseIterable {
         switch self {
         case .added: return "DateCreated"
         case .newest, .oldest: return "ProductionYear"
-        case .rating: return "CommunityRating"
+        case .rating, .imdbRating, .doubanRating: return "CommunityRating"
         case .name: return "SortName"
         }
     }
     public var descending: Bool { self != .name && self != .oldest }
+    public var usesExternalRatings: Bool { self == .imdbRating || self == .doubanRating }
 }
 
 public enum LibraryResolution: String, CaseIterable {
@@ -61,10 +64,11 @@ public struct LibraryFilter: Hashable {
     public var resolution: LibraryResolution?
     public var videoRange: LibraryVideoRange?
     public var audio: LibraryAudio?
+    public var chart: MovieChartKind?
     public init() {}
     public var isActive: Bool {
         year != nil || decade != nil || genre != nil || country != nil || region != nil || played != nil ||
-        kind != nil || resolution != nil || videoRange != nil || audio != nil
+        kind != nil || resolution != nil || videoRange != nil || audio != nil || chart != nil
     }
 
     public func apply(to items: [MediaItem], search: String = "") -> [MediaItem] {
@@ -79,6 +83,7 @@ public struct LibraryFilter: Hashable {
             (resolution == nil || item.matches(resolution!)) &&
             (videoRange == nil || item.matches(videoRange!)) &&
             (audio == nil || item.matches(audio!)) &&
+            (chart == nil || (item.Type == "Movie" && item.ChartRanks?[chart!.rawValue] != nil)) &&
             (search.isEmpty || item.Name.localizedStandardContains(search) || item.OriginalTitle?.localizedStandardContains(search) == true)
         }.sorted { lhs, rhs in
             func compare<T: Comparable>(_ a: T?, _ b: T?) -> Bool {
@@ -91,6 +96,8 @@ public struct LibraryFilter: Hashable {
             case .added: return compare(lhs.DateCreated, rhs.DateCreated)
             case .newest, .oldest: return compare(lhs.ProductionYear, rhs.ProductionYear)
             case .rating: return compare(lhs.CommunityRating, rhs.CommunityRating)
+            case .imdbRating: return compare(lhs.ExternalRatings?.imdb?.value, rhs.ExternalRatings?.imdb?.value)
+            case .doubanRating: return compare(lhs.ExternalRatings?.douban?.value, rhs.ExternalRatings?.douban?.value)
             case .name:
                 let order = (lhs.SortName ?? lhs.Name).localizedStandardCompare(rhs.SortName ?? rhs.Name)
                 return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending

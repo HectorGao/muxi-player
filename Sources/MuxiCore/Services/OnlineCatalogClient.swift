@@ -20,8 +20,27 @@ public struct OnlineSource: Codable, Identifiable, Hashable {
         .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211001")!, name: "Internet Archive · 电影",
               url: URL(string: "https://archive.org")!, kind: .archive, collection: "feature_films", isDefault: true),
         .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211002")!, name: "Prelinger · 纪录影像",
-              url: URL(string: "https://archive.org")!, kind: .archive, collection: "prelinger", isDefault: true)
+              url: URL(string: "https://archive.org")!, kind: .archive, collection: "prelinger", isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211003")!, name: "360资源", url: URL(string: "https://360zy.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211004")!, name: "红牛资源", url: URL(string: "https://www.hongniuzy2.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211005")!, name: "极速资源", url: URL(string: "https://jszyapi.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211006")!, name: "光速资源", url: URL(string: "https://api.guangsuapi.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211007")!, name: "无尽资源", url: URL(string: "https://api.wujinapi.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211008")!, name: "虎牙资源", url: URL(string: "https://www.huyaapi.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211009")!, name: "火狐资源", url: URL(string: "https://hhzyapi.com/api.php/provide/vod/")!, isDefault: true)
     ]
+
+    public static func mergingDefaults(into saved: [OnlineSource]) -> [OnlineSource] {
+        func address(_ source: OnlineSource) -> String {
+            var parts = URLComponents(url: source.url, resolvingAgainstBaseURL: false)!
+            parts.host = parts.host?.lowercased(); parts.fragment = nil
+            while parts.path.hasSuffix("/") { parts.path.removeLast() }
+            return parts.string ?? source.url.absoluteString
+        }
+        return saved + defaults.filter { preset in
+            !saved.contains { $0.id == preset.id || ($0.kind == preset.kind && $0.collection == preset.collection && address($0) == address(preset)) }
+        }
+    }
 }
 
 public struct OnlineItem: Codable, Identifiable, Hashable {
@@ -140,8 +159,7 @@ public struct OnlineCatalogClient {
         let items = rows.compactMap { record -> OnlineItem? in
             let id = text(record["vod_id"]), name = text(record["vod_name"])
             guard !id.isEmpty, !name.isEmpty else { return nil }
-            var media = MediaItem(id: source.id.uuidString + ":" + id, name: name,
-                                  type: text(record["type_name"]).contains("剧") ? "Series" : "Movie")
+            var media = MediaItem(id: source.id.uuidString + ":" + id, name: name, type: mediaType(record))
             media.Overview = text(record["vod_content"]).replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             media.ProductionYear = Int(text(record["vod_year"]).prefix(4))
             media.ProductionLocations = text(record["vod_area"]).components(separatedBy: CharacterSet(charactersIn: "/,、" )).filter { !$0.isEmpty }
@@ -153,8 +171,18 @@ public struct OnlineCatalogClient {
             let imdb = text(record["vod_imdb_id"])
             if isIMDbID(imdb) { ids["Imdb"] = imdb }
             let douban = text(record["vod_douban_id"])
-            if !douban.isEmpty, douban != "0", douban.allSatisfy(\.isNumber) { ids["Douban"] = douban }
+            if isDoubanID(douban) { ids["Douban"] = douban }
             media.ProviderIds = ids
+            var ratings = MovieRatingSet()
+            if isDoubanID(douban), let score = validScore(record["vod_douban_score"]) {
+                ratings.douban = MovieRating(value: score, source: "豆瓣", votes: nil,
+                                             url: URL(string: "https://movie.douban.com/subject/\(douban)/")!, attribution: "片源提供")
+            }
+            if isIMDbID(imdb), let score = validScore(record["vod_imdb_score"]) {
+                ratings.imdb = MovieRating(value: score, source: "IMDb", votes: nil,
+                                           url: URL(string: "https://www.imdb.com/title/\(imdb)/")!, attribution: "片源提供")
+            }
+            if ratings.hasValues { media.ExternalRatings = ratings }
             return OnlineItem(sourceID: source.id, remoteID: id, media: media)
         }
         let total = Int(text(object["total"])) ?? items.count
@@ -186,7 +214,7 @@ public struct OnlineCatalogClient {
 
     public static func parseRoutes(from: String, urls: String) -> [OnlineRoute] {
         let names = from.components(separatedBy: "$$$")
-        return urls.components(separatedBy: "$$$").enumerated().compactMap { index, group in
+        let routes = urls.components(separatedBy: "$$$").enumerated().compactMap { index, group -> OnlineRoute? in
             let episodes = group.components(separatedBy: "#").enumerated().compactMap { offset, value -> OnlineEpisode? in
                 let parts = value.split(separator: "$", maxSplits: 1).map(String.init)
                 guard let raw = parts.last, let url = try? checkedURL(raw) else { return nil }
@@ -196,6 +224,9 @@ public struct OnlineCatalogClient {
             let name = names.indices.contains(index) && !names[index].isEmpty ? names[index] : "线路 \(index + 1)"
             return OnlineRoute(name: "\(name) · \(index + 1)", episodes: episodes)
         }
+        let files: Set<String> = ["m3u8", "mp4", "mkv", "webm", "mpd", "mov", "avi", "ts", "flv", "m4v"]
+        func direct(_ route: OnlineRoute) -> Bool { route.episodes.allSatisfy { files.contains($0.url.pathExtension.lowercased()) } }
+        return routes.filter(direct) + routes.filter { !direct($0) }
     }
 
     public func subscription(_ address: String) async throws -> [OnlineSource] {
@@ -217,6 +248,19 @@ public struct OnlineCatalogClient {
     }
 
     public static func isIMDbID(_ value: String) -> Bool { value.range(of: "^tt[0-9]{7,12}$", options: .regularExpression) != nil }
+    public static func isDoubanID(_ value: String) -> Bool { value.range(of: "^[1-9][0-9]{0,11}$", options: .regularExpression) != nil }
+    private static func validScore(_ value: Any?) -> Double? {
+        guard let score = Double(text(value)), score.isFinite, score > 0, score <= 10 else { return nil }
+        return score
+    }
+    private static func mediaType(_ record: [String: Any]) -> String {
+        let name = text(record["type_name"])
+        if name.contains("解说") || name.contains("预告") { return "Video" }
+        let parent = Int(text(record["type_id_1"] ?? record["type_pid"]))
+        if parent == 1 { return "Movie" }
+        if parent == 2 || name.hasSuffix("剧") || name.contains("连续剧") || name.contains("剧集") || name.contains("综艺") || name.hasSuffix("动漫") { return "Series" }
+        return "Movie"
+    }
     private static func text(_ value: Any?) -> String {
         if let value = value as? String { return value.trimmingCharacters(in: .whitespacesAndNewlines) }
         if let value = value as? NSNumber { return value.stringValue }

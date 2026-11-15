@@ -27,6 +27,7 @@ struct LibraryFilterPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            FilterOptionsRow(title: "榜单", selected: $library.filter.chart, options: MovieChartKind.allCases.map { ($0.label, $0) })
             FilterOptionsRow(title: "内容", selected: $library.filter.kind, options: [("电影", "Movie"), ("剧集", "Series"), ("合集", "BoxSet")])
             FilterOptionsRow(title: "分辨率", selected: $library.filter.resolution, options: LibraryResolution.allCases.map { ($0.rawValue, $0) })
             FilterOptionsRow(title: "画面", selected: $library.filter.videoRange, options: LibraryVideoRange.allCases.map { ($0.rawValue, $0) })
@@ -120,7 +121,7 @@ private struct FilterOptionButton: View {
     }
 }
 
-private struct FilterOptionsRow<Value: Hashable>: View {
+struct FilterOptionsRow<Value: Hashable>: View {
     let title: String
     @Binding var selected: Value?
     let options: [(String, Value)]

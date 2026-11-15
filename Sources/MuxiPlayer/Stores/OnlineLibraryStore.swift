@@ -65,7 +65,7 @@ import MuxiCore
         defer { restoring = false }
         do {
             if let saved = try await credentials.loadOnlineSources() {
-                sources = saved + OnlineSource.defaults.filter { preset in !saved.contains { $0.id == preset.id } }
+                sources = OnlineSource.mergingDefaults(into: saved)
             }
             ready = true; error = nil
         } catch { self.error = "在线源配置暂未读取，原记录已保留。可继续浏览默认公开源。" }

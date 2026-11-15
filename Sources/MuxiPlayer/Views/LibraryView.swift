@@ -13,6 +13,7 @@ struct LibraryView: View {
     let more: () -> Void
     let retry: () -> Void
     @ViewState private var showingFilters = false
+    @ViewState private var ratingRevision = 0
     private var filtering: Bool { library.path.isEmpty && LibraryStore.canFilter(selection) && library.filter.isActive }
 
     var body: some View {
@@ -55,7 +56,17 @@ struct LibraryView: View {
                     HStack { Spacer(); Button(library.loadingMore ? "正在加载…" : "加载更多", action: more).disabled(library.loadingMore); Spacer() }.padding()
                 }
             }.padding(30)
-        }.onChange(of: library.indexUpdatedAt) { _, _ in if library.filter.isActive { retry() } }
+        }.onChange(of: library.indexUpdatedAt) { _, _ in if library.filter.isActive || library.filter.sort.usesExternalRatings { retry() } }
+            .onReceive(NotificationCenter.default.publisher(for: .muxiMovieRatingsUpdated)) { _ in
+                if library.filter.sort.usesExternalRatings || library.filter.chart != nil { ratingRevision += 1 }
+            }
+            .task(id: ratingRevision) {
+                guard ratingRevision > 0 else { return }
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                    if !library.loading { retry() }
+                } catch { }
+            }
     }
 
     private var browseControls: some View {
@@ -63,7 +74,7 @@ struct LibraryView: View {
             HStack(spacing: 16) {
                 Picker("排序", selection: $library.filter.sort) {
                     ForEach(LibrarySort.allCases, id: \.self) { Text($0.label).tag($0) }
-                }.frame(width: 205)
+                }.frame(width: 270)
                 Button { showingFilters.toggle() } label: {
                     Label(library.filter.isActive ? "筛选 · 已启用" : "筛选", systemImage: "line.3.horizontal.decrease")
                 }.tint(library.filter.isActive ? Theme.accent : nil)
@@ -75,6 +86,7 @@ struct LibraryView: View {
                 }
                 Spacer()
             }
+            if !library.ratingNotice.isEmpty { Text(library.ratingNotice).font(.caption).foregroundStyle(.secondary) }
             if showingFilters {
                 VStack(alignment: .leading, spacing: 14) {
                     if library.indexing {

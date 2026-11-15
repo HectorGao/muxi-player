@@ -128,8 +128,8 @@ import MuxiCore
         try require((response as? HTTPURLResponse)?.statusCode == 206 && data.count == 1024, "Public media range request failed")
         var movie = MediaItem(id: "live-rating", name: "Blade Runner 2049")
         movie.ProviderIds = ["Imdb": "tt1856101"]
-        let rating = await MovieRatings.shared.rating(for: movie)
-        try require(rating?.source == "IMDb" && (rating?.value ?? 0) > 0, "Live IMDb rating was unavailable")
+        let ratings = await MovieRatings.shared.ratings(for: movie)
+        try require(ratings.imdb?.source == "IMDb" && (ratings.imdb?.value ?? 0) > 0, "Live IMDb rating was unavailable")
         print("PASS: live public media Range 206 and attributed IMDb rating")
     }
 }

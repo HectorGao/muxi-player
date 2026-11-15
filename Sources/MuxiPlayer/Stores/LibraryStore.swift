@@ -30,6 +30,7 @@ struct LibraryShelf {
     var indexedCount = 0
     var indexError: String?
     var indexUpdatedAt: Date?
+    var ratingNotice = ""
     @ObservationIgnored private let indexCache: LibraryIndexCache
 
     init(indexCache: LibraryIndexCache? = nil) { self.indexCache = indexCache ?? .shared }
@@ -130,6 +131,7 @@ struct LibraryShelf {
         loading = true
         loadingMore = false
         error = nil
+        ratingNotice = ""
         favoriteValues = favoriteValues.filter { favoritePending.contains($0.key) }
         items = []
         hasMore = false
@@ -256,16 +258,16 @@ struct LibraryShelf {
             guard let filterIndex, indexScope == scope else { throw EmbyError.invalidResponse }
             let requested = Self.canFilter(selection) ? filter : LibraryFilter()
             let values = selection == "favorites" ? filterIndex.filter(\.isFavorite) : filterIndex
-            let matches = requested.apply(to: values, search: search)
+            let matches = try await filtered(values, requested: requested, search: search)
             return ItemPage(Items: Array(matches.dropFirst(start).prefix(60)), TotalRecordCount: matches.count)
         }
         if Self.canFilter(selection), path.isEmpty {
             let requested = filter
-            if requested.isActive {
+            if requested.isActive || requested.sort.usesExternalRatings {
                 if filterIndex == nil || indexScope != "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)" { await prepareFilters(client: client, selection: selection) }
                 try Task.checkCancellation()
                 guard let filterIndex, indexScope == "\(client.baseURL)|\(client.connection?.user.Id ?? "")|\(selection)" else { throw EmbyError.invalidResponse }
-                let matches = requested.apply(to: filterIndex, search: search)
+                let matches = try await filtered(filterIndex, requested: requested, search: search)
                 return ItemPage(Items: Array(matches.dropFirst(start).prefix(60)), TotalRecordCount: matches.count)
             }
             return try await client.items(parent: selection.hasPrefix("library:") ? String(selection.dropFirst(8)) : nil,
@@ -281,6 +283,16 @@ struct LibraryShelf {
             return try await client.items(type: "Movie,Series", start: start, sortBy: "CommunityRating,DateCreated", descending: true, unplayedOnly: true)
         }
         return try await client.items(type: selection == "catalog" ? "Movie,Series,BoxSet" : selection == "series" ? "Series" : "Movie", start: start)
+    }
+
+    private func filtered(_ values: [MediaItem], requested: LibraryFilter, search: String) async throws -> [MediaItem] {
+        guard requested.chart != nil || requested.sort.usesExternalRatings else { return requested.apply(to: values, search: search) }
+        let token = refreshID
+        let result = await MovieRatings.shared.enriched(values, chart: requested.chart, sort: requested.sort)
+        try Task.checkCancellation()
+        guard token == refreshID else { throw CancellationError() }
+        ratingNotice = result.notice
+        return requested.apply(to: result.items, search: search)
     }
 
     private func captured<T>(_ operation: () async throws -> T) async -> Result<T, Error> {
