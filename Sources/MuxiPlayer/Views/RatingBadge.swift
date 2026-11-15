@@ -29,13 +29,21 @@ struct RatingBadge: View {
         }
     }
 
-    @ViewBuilder private var scores: some View {
-        ForEach([ratings.imdb, ratings.douban].compactMap { $0 }, id: \.source) { rating in
+    private var scoreValues: [MovieRating] { [ratings.imdb, ratings.douban].compactMap { $0 } }
+
+    private var scores: some View {
+        ForEach(scoreValues, id: \.source) { (rating: MovieRating) in
             Group {
                 if compact { label(rating.value, source: rating.source) }
                 else { Link(destination: rating.url) { label(rating.value, source: rating.source) } }
-            }.help(rating.source + (rating.votes.map { " · \($0) 人评分" } ?? "") + " · " + (rating.attribution ?? "公开评分 · 缓存 7 天"))
+            }.help(ratingHelp(rating))
         }
+    }
+
+    private func ratingHelp(_ rating: MovieRating) -> String {
+        let votes = rating.votes.map { " · \($0) 人评分" } ?? ""
+        let attribution = rating.attribution ?? "公开评分 · 缓存 7 天"
+        return rating.source + votes + " · " + attribution
     }
 
     private func label(_ value: Double, source: String) -> some View {
