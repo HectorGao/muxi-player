@@ -188,6 +188,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path, query = self.parsed()
+        if path.startswith("/site/"):
+            self.record("WebsiteRequest", {"path": path})
+            if path == "/site/error":
+                return self.respond({}, 503)
+            if path == "/site/slow":
+                time.sleep(0.2)
+            title = "第二页" if path == "/site/second" else "观影测试站"
+            data = f'<html><head><title>{title}</title></head><body><a href="/emby/site/second">下一页</a></body></html>'.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if path == "/System/Info/Public":
+            return self.respond({"Id": "muxi-fixture", "Version": "1.0", "ServerName": "本机测试"})
         if path == "/cms":
             self.record("OnlineQuery", {key: query.get(key, [None])[0] for key in ["wd", "pg", "h", "ids"]})
             base = f"http://{self.headers['Host']}/emby/Videos"

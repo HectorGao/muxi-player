@@ -94,6 +94,8 @@ import MuxiCore
         try require(!String(decoding: bookmark, as: UTF8.self).contains("/Videos/"), "Online bookmark contains a media URL")
 
         let resumed = PlaybackController(headless: true, resumeDefaults: defaults)
+        try require(resumed.history.count == 1 && (resumed.history.first?.position ?? 0) > 17, "Online viewing history did not persist or deduplicate")
+        try require(!String(decoding: defaults.data(forKey: "playbackHistory")!, as: UTF8.self).contains("/Videos/"), "Viewing history retained a signed media URL")
         resumed.volume = 0; resumed.resumeOnline(source: source)
         try await wait("online resume") {
             resumed.isPlaying && resumed.position > 17 && resumed.engine?.selectedAudioID == audio.id && resumed.engine?.selectedSubtitleID == subtitle.id
@@ -102,12 +104,23 @@ import MuxiCore
         try require(resumed.engine?.selectedSubtitleID == subtitle.id, "Subtitle selection was lost during resume")
         try require(resumed.canPlayNext, "CMS episodes did not expose next episode")
         await resumed.stop()
+        let historic = resumed.history[0]
+        resumed.resumeHistory(historic, client: nil, source: source)
+        try await wait("history resume") { resumed.isPlaying && resumed.position > 17 }
+        await resumed.stop()
+        try require(resumed.history.count == 1, "Repeated viewing created duplicate history entries")
         let previousClosed = events("StreamClosed").count
         resumed.playOnline(entry, source: source, route: 1, episode: 0, fromStart: true)
         try await wait("slow online stream") { resumed.isPlaying }
         await resumed.stop()
         try await wait("stream cancellation") { events("StreamClosed").count > previousClosed }
         try require(events("StreamClosed").last?["complete"] as? Bool == false, "Stopping continued to download the entire stream")
+        try require(resumed.history.count == 2, "Separate routes were lost from viewing history")
+        resumed.removeHistory(resumed.history[0].id)
+        try require(resumed.history.count == 1, "Single history removal failed")
+        resumed.clearHistory()
+        let cleared = PlaybackController(headless: true, resumeDefaults: defaults)
+        try require(cleared.history.isEmpty && cleared.onlineRecent != nil, "Cleared history was revived from the latest bookmark")
         print("PASS: actual online MKV decode, tracks, seek, stop, persisted resume and early network cancellation")
     }
 

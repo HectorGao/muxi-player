@@ -54,6 +54,18 @@ actor CredentialStore {
         try write(JSONEncoder().encode(sources), account: "online-sources-v1")
     }
 
+    func loadViewingSites() throws -> [ViewingSite]? {
+        guard let data = try read("viewing-sites-v1") else { return nil }
+        let sites = try JSONDecoder().decode([ViewingSite].self, from: data)
+        guard Set(sites.map(\.id)).count == sites.count else { throw CocoaError(.coderReadCorrupt) }
+        for site in sites { _ = try ViewingSite.checkedURL(site.url.absoluteString) }
+        return sites
+    }
+
+    func saveViewingSites(_ sites: [ViewingSite]) throws {
+        try write(JSONEncoder().encode(sites), account: "viewing-sites-v1")
+    }
+
     private func write(_ data: Data, account: String) throws {
         let request = query(account)
         let status = SecItemUpdate(request as CFDictionary, [kSecValueData as String: data] as CFDictionary)

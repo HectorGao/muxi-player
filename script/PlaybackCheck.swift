@@ -149,6 +149,19 @@ import MuxiCore
         let bookmarked = PlaybackController(headless: true, resumeDefaults: bookmarkDefaults)
         try check(bookmarked.recent?.item.id == item.id && abs((bookmarked.recent?.position ?? 0) - resumePosition) < 2,
                   "Return-to-playback card must survive controller recreation")
+        try check(bookmarked.history.count == 1 && bookmarked.history.first?.recent?.item.MediaStreams == nil,
+                  "Native history must persist, deduplicate and omit stream addresses")
+        bookmarked.volume = 0
+        bookmarked.resumeHistory(bookmarked.history[0], client: client, source: nil)
+        try await wait("native history resume") { bookmarked.isPlaying && abs(bookmarked.position - resumePosition) < 2 }
+        await bookmarked.stop()
+        bookmarkDefaults.removeObject(forKey: "playbackHistory")
+        let migrated = PlaybackController(headless: true, resumeDefaults: bookmarkDefaults)
+        try check(migrated.history.first?.recent?.item.id == item.id, "Legacy resume bookmark did not migrate to history")
+        migrated.clearHistory()
+        try check(PlaybackController(headless: true, resumeDefaults: bookmarkDefaults).history.isEmpty,
+                  "Cleared native history must stay empty on recreation")
+        print("PASS: native history persistence, deduplication, resume, legacy migration and clear")
 
         let mp4 = try await client.item(id: "movie")
         controller.play(mp4, client: client, fromStart: true)

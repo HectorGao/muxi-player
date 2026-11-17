@@ -37,3 +37,24 @@
 ## 接口线索
 
 API 线索来自社区源列表与服务商帮助页，实际结果由上述独立测试确定。[社区接口列表](https://github.com/cms-player/vod-source/blob/main/source.json)、[360 官网](https://360zy.com/)、[量子帮助](https://lzizy.net/index.php/help.html)、[红牛帮助](https://hongniuzy.com/index.php/help)、[暴风帮助](https://bfzy.tv/index.php/help.html)。
+
+## 2026-11-17 观影站点核查
+
+网站线索来自用户指定的 Jeffern 项目及作者后续的 Joyflix 站点配置，LibreTV 演示地址来自当前项目 README。本次新增独立 WebKit 入口，并复用现有七个 CMS 源进行聚合浏览。实现使用平台 API 与幕汐自身代码。[Jeffern 参考项目](https://github.com/King-JH484/LibreTV-MoonTV-Mac-Objective-C)、[Joyflix 当前站点配置](https://github.com/jeffernn/Joyflix-Mac-Objective-C/blob/main/Joyflix/Home/HLHomeViewController.m)、[LibreTV 项目](https://github.com/LibreSpark/LibreTV)、[用户提供的接口讨论](https://github.com/LibreSpark/LibreTV/discussions/652)。
+
+| 内置入口 | 地址 | 本次核查 |
+| --- | --- | --- |
+| 可可影视 | <https://www.kkys20.com/> | HTTP 200，影视主页 |
+| OmoFun | <https://omofun.in/> | HTTP 200，动漫主页 |
+| 注视影视 | <https://gaze.red/> | HTTP 200，影视主页 |
+| 爱迪影视 | <https://adys.tv/> | HTTP 200，影视主页 |
+| CCTV 直播 | <https://tv.cctv.com/live/> | HTTP 200，直播主页 |
+| LibreTV 演示站 | <https://tv.bagiinlink.eu.org/> | HTTP 502，保留项目公布的入口并显示实时状态 |
+| 鹿院 Emby | <https://dongman.theluyuan.com/> | `System/Info/Public` 返回有效服务器 ID 与版本，登录资格以站方为准 |
+| Jellyfin 官方演示 | <https://demo.jellyfin.org/stable/> | `System/Info/Public` 返回有效服务器 ID 与版本，供测试媒体演示 |
+
+HTTP 检查覆盖网页与公共接口，逐片和长片播放仍需分别验证。旧参考中的 `omofun2.xyz` 返回加载占位页，`jagcys.com` 返回停放内容，部分旧域名返回 404、TLS 错误或超时。网络列表中的 `emby.plusmedia.site` 返回 HTML 停放页，Xeton 两个接口超时。默认入口采用上述已核对地址。
+
+同日使用名为 `MuxiPlayer` 的原生检测进程复测全部 17 个观影 / 接口入口，13 个在线，可可、爱迪和红牛出现连接超时，LibreTV 演示站返回 HTTP 502。普通检测进程可读取上述三个入口，进程与网络路径会影响结果。界面保留逐站状态，自动优选依据当次本机检测。既有播放源直连分流继续沿用。
+
+公益服指北、终点站公告、LibreTV 和 Jeffern / Joyflix 项目页列入资讯区，作为开通条件与地址变更的查阅入口。参考项目 README 记录过内置 Emby 因滥用停用，公益服的开放状态以运营方当前公告为准。[公益服指北](https://wiki.freeembyguide.eu.org/)、[终点站公告](https://t.me/s/embypub)。

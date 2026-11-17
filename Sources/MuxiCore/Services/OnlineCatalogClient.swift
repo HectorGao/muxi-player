@@ -75,7 +75,8 @@ public struct OnlineRoute: Identifiable {
 
 public struct OnlineCatalogClient {
     private let session: URLSession?
-    public init(session: URLSession? = nil) { self.session = session }
+    private let network: PublicNetwork
+    public init(session: URLSession? = nil, network: PublicNetwork = .shared) { self.session = session; self.network = network }
 
     public static func checkedURL(_ value: String) throws -> URL {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -92,7 +93,7 @@ public struct OnlineCatalogClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let result: (Data, URLResponse)
         if let session { result = try await session.data(for: request) }
-        else { result = try await PublicNetwork.shared.data(for: request) }
+        else { result = try await network.data(for: request) }
         let (data, response) = result
         guard let response = response as? HTTPURLResponse else {
             throw CatalogError("接口暂不可用，请检查地址与网络。")

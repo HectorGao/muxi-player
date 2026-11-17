@@ -34,6 +34,14 @@ bash script/check_online.sh
 
 `bash script/check_online.sh --live` 额外访问公开片库、读取媒体 Range 和查询 IMDb 评分。普通替身测试不依赖外部服务。
 
+## 观影站点与历史
+
+`ViewingSiteStore` 从钥匙串读取网站配置，与已启用在线源和已保存媒体库同步检测名单。启动检查按进程执行一次，最多四个并发请求。健康状态、连续失败、网页访问和清缓存计数存于本机偏好设置，网站按在线状态和响应时间排序。自动打开仅选择本轮成功检测的观影网页，资讯入口独立显示。
+
+`SiteProbe` 对 Emby / Jellyfin 请求公共信息接口，对 CMS / Archive 验证目录数据，对网页读取前 32 KiB 并取消剩余传输。公开请求复用 `PublicNetwork` 的系统代理重试，媒体服务器公共检测使用独立会话。检测会话禁用 HTTP 缓存，保留 HTTPS 证书校验。
+
+`WebsiteBrowser` 用 WebKit 导航与 KVO 记录标题和单页应用地址变化。`PlaybackController` 复用现有续播结构保存影片历史，重新播放时获取当前媒体地址。`bash script/check_sites.sh` 验证站点存储、检测、自动选择、第三次启动缓存清理和 WebKit 历史，需要先启动本机 `smoke_server.py`。加 `--live` 会检查全部内置网页及公开接口。
+
 ## 自动更新发布
 
 Sparkle 2.10.1 由 SwiftPM 固定下载。签名密钥位于本机登录钥匙串的 `com.hectorgao.muxi-player.updates` 账户，仓库只含 `Resources/UpdatePublicKey.txt`；不得导出或提交私钥。安装包在解压前验证 Ed25519 签名。自动下载后等待应用退出安装；保留应用原有进度上报流程。

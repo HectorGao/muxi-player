@@ -19,6 +19,10 @@ struct ContentView: View {
     @ViewState private var detail: MediaSelection?
     @ViewState private var onlineDetail: OnlineSelection?
     @ViewState private var online = OnlineLibraryStore.shared
+    @ViewState private var sites = ViewingSiteStore.shared
+    @ViewState private var websiteURL: URL?
+    @ViewState private var connectingSite: ViewingSite?
+    @ViewState private var startupOpenPending = true
     @ViewState private var sourcePosters: [UUID: [MediaItem]] = [:]
     @ViewState private var managingSources = false
     @ViewState private var refreshRevision = 0
@@ -32,6 +36,9 @@ struct ContentView: View {
     private var immersive: Bool { selection == "playing" && playback.item != nil && playerWindow.isImmersive }
 
     private var title: String {
+        if selection == "sites" { return "观影站点" }
+        if selection == "history" { return "观影记录" }
+        if selection == "website" { return "网页观影" }
         if selection == "playing" { return playback.item?.Name ?? "现在观看" }
         if !query.isEmpty { return "搜索结果" }
         if let folder = library.path.last { return folder.Name }
@@ -61,7 +68,7 @@ struct ContentView: View {
                     if sidebarVisible && !immersive { sidebar.frame(width: 210) }
                     VStack(spacing: 0) {
                         if !immersive { toolbar }
-                        if selection != "playing" {
+                        if !["playing", "sites", "history", "website"].contains(selection) {
                             if playback.onlineMostRecent, let recent = playback.onlineRecent,
                                let source = online.sources.first(where: { $0.id == recent.entry.sourceID }) {
                                 returnToOnlinePlayback(recent, source: source)
@@ -69,7 +76,14 @@ struct ContentView: View {
                                 returnToPlayback(recent, client: client)
                             }
                         }
-                        if selection == "playing" {
+                        if selection == "sites" {
+                            ViewingSitesView(store: sites, open: openSite, manageSources: { managingSources = true })
+                        } else if selection == "history" {
+                            ViewingHistoryView(sites: sites, playback: playback, connection: connection, online: online,
+                                               openWebsite: openWebsite, resume: resumeHistory)
+                        } else if selection == "website", let url = websiteURL {
+                            WebsiteView(url: url, store: sites) { navigate("sites") }
+                        } else if selection == "playing" {
                             PlayerView(playback: playback, window: playerWindow, exit: exitPlayback)
                         } else if let source = online.selectedSource {
                             OnlineLibraryView(store: online, source: source, selection: selection, search: query,
@@ -90,7 +104,7 @@ struct ContentView: View {
                 }
                 .background { backdrop }
                 .task(id: [AnyHashable(selection), AnyHashable(search), AnyHashable(library.path.last?.id), AnyHashable(playback.revision), AnyHashable(library.filter), AnyHashable(connection.selectedSourceID), AnyHashable(connection.revision)]) {
-                    if selection != "playing" { await refresh() }
+                    if !["playing", "sites", "history", "website"].contains(selection) { await refresh() }
                 }
             }
         }
@@ -98,6 +112,10 @@ struct ContentView: View {
         .focusedSceneValue(\.playerWindow, playerWindow)
         .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $managingSources) { SourceManagerView(connection: connection, playback: playback) }
+        .sheet(item: $connectingSite) { site in
+            ConnectView(connection: connection, preset: site, saved: { connectingSite = nil }, cancel: { connectingSite = nil })
+                .frame(width: 960, height: 760)
+        }
         .sheet(item: $onlineDetail) { selected in
             OnlineDetailView(selected: selected, store: online, resume: playback.onlineRecent) { route, episode in
                 playback.playOnline(selected.entry, source: selected.source, route: route, episode: episode)
@@ -127,6 +145,17 @@ struct ContentView: View {
         }
         .onChange(of: connection.revision) { _, _ in
             stopPlayback(); detail = nil; sourcePosters = [:]; library = LibraryStore(); selection = "home"; search = ""
+            sites.synchronize(online: online.sources, servers: connection.sources)
+        }
+        .onChange(of: online.sources) { _, _ in sites.synchronize(online: online.sources, servers: connection.sources) }
+        .onChange(of: search) { _, _ in startupOpenPending = false }
+        .onChange(of: managingSources) { _, visible in if visible { startupOpenPending = false } }
+        .onChange(of: sites.startupSite) { _, site in
+            if startupOpenPending, let site, selection == "home", playback.item == nil, query.isEmpty,
+               detail == nil, onlineDetail == nil, connectingSite == nil, !managingSources {
+                openSite(site)
+            }
+            startupOpenPending = false
         }
 
         .onChange(of: playback.item?.id) { _, id in
@@ -147,11 +176,11 @@ struct ContentView: View {
                 Text("幕汐").font(.caption).tracking(4).foregroundStyle(.secondary)
             }.padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 20)
             Menu {
-                Button("全部媒体源") { online.selectedID = nil; connection.selectSource(nil) }
+                Button("全部媒体源") { startupOpenPending = false; online.selectedID = nil; connection.selectSource(nil) }
                 Divider()
-                ForEach(connection.sources) { source in Button(source.name) { online.selectedID = nil; connection.selectSource(source.id) } }
+                ForEach(connection.sources) { source in Button(source.name) { startupOpenPending = false; online.selectedID = nil; connection.selectSource(source.id) } }
                 Divider()
-                ForEach(online.enabledSources) { source in Button(source.name) { connection.selectSource(nil); online.selectedID = source.id } }
+                ForEach(online.enabledSources) { source in Button(source.name) { startupOpenPending = false; connection.selectSource(nil); online.selectedID = source.id } }
             } label: {
                 HStack {
                     Image(systemName: "externaldrive")
@@ -164,6 +193,8 @@ struct ContentView: View {
                     navigationRow("媒体墙", icon: "square.grid.2x2", value: "home")
                     navigationRow("为你推荐", icon: "sparkles", value: "recommendations")
                     navigationRow("我的收藏", icon: "heart", value: "favorites")
+                    navigationRow("观影站点", icon: "network", value: "sites")
+                    navigationRow("观影记录", icon: "clock", value: "history")
                     Text("媒体库").font(.caption).foregroundStyle(.secondary).padding(.leading, 12).padding(.top, 22).padding(.bottom, 6)
                     navigationRow("全部内容", icon: "square.stack", value: "catalog")
                     if connection.client == nil || online.selectedSource != nil {
@@ -204,7 +235,30 @@ struct ContentView: View {
         } else { TidalBackdrop(items: online.backdropItems, client: nil, active: active) }
     }
 
-    private func openOnline(_ entry: OnlineItem, source: OnlineSource) { onlineDetail = OnlineSelection(entry: entry, source: source) }
+    private func openOnline(_ entry: OnlineItem, source: OnlineSource) {
+        startupOpenPending = false; onlineDetail = OnlineSelection(entry: entry, source: source)
+    }
+
+    private func openSite(_ site: ViewingSite) {
+        if let source = online.sources.first(where: { $0.id == site.id && $0.enabled }) {
+            online.selectedID = source.id; connection.selectSource(nil); navigate("home")
+        } else if connection.sources.contains(where: { $0.id == site.id }) {
+            online.selectedID = nil; connection.selectSource(site.id); navigate("home")
+        } else if site.kind == .emby || site.kind == .jellyfin {
+            connectingSite = site
+        } else { openWebsite(site.url) }
+    }
+
+    private func openWebsite(_ url: URL) { navigate("website"); websiteURL = url }
+
+    private func resumeHistory(_ entry: PlaybackHistoryEntry) {
+        let client = entry.recent.flatMap { recent in connection.clients.values.first { recent.belongs(to: $0) } }
+        let source = online.enabledSources.first { $0.id == entry.online?.entry.sourceID }
+        guard client != nil || source != nil else { return }
+        returnSelection = "history"
+        playback.resumeHistory(entry, client: client, source: source)
+        selection = "playing"
+    }
 
     private func returnToOnlinePlayback(_ recent: OnlineResume, source: OnlineSource) -> some View {
         HStack(spacing: 14) {
@@ -260,6 +314,7 @@ struct ContentView: View {
     }
 
     private func openAggregated(_ item: MediaItem, source: SavedMediaSource, library: LibraryStore, client: EmbyClient) {
+        startupOpenPending = false
         if item.isContainer {
             pendingFolder = item
             browseSource(source, destination: "home")
@@ -297,7 +352,7 @@ struct ContentView: View {
             if selection != "playing", let error = playback.syncError {
                 Label("进度待同步", systemImage: "exclamationmark.icloud").font(.caption).help(error)
             }
-            if selection != "playing" {
+            if !["playing", "sites", "history", "website"].contains(selection) {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField(selection == "favorites" ? "搜索收藏" : "搜索电影、剧集", text: $search).textFieldStyle(.plain).focused($searchFocused)
@@ -327,6 +382,7 @@ struct ContentView: View {
     }
 
     private func openItem(_ item: MediaItem) {
+        startupOpenPending = false
         if item.isContainer {
             if !search.isEmpty { library.path = [] }
             search = ""
@@ -336,6 +392,7 @@ struct ContentView: View {
     }
 
     private func navigate(_ destination: String) {
+        startupOpenPending = false
         if selection == "playing", destination != "playing" { stopPlayback() }
         if destination != selection, destination != "playing" { library.resetBrowsing() }
         library.path = []

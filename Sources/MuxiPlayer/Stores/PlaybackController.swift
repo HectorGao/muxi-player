@@ -29,6 +29,15 @@ struct OnlineResume: Codable {
     var settings: PlaybackSettings
 }
 
+struct PlaybackHistoryEntry: Codable, Identifiable {
+    let id: String
+    let watchedAt: Date
+    let recent: RecentPlayback?
+    let online: OnlineResume?
+    var title: String { recent?.item.Name ?? online?.entry.media.Name ?? "影片" }
+    var position: Double { recent?.position ?? online?.position ?? 0 }
+}
+
 @MainActor @Observable final class PlaybackController {
     @ObservationIgnored let engine: MPVEngine?
     var item: MediaItem?
@@ -56,6 +65,7 @@ struct OnlineResume: Codable {
     private(set) var recent: RecentPlayback?
     private(set) var onlineRecent: OnlineResume?
     private(set) var onlineMostRecent = false
+    private(set) var history: [PlaybackHistoryEntry] = []
     @ObservationIgnored private var onlineCurrent: OnlineResume?
     @ObservationIgnored private var onlineSource: OnlineSource?
     @ObservationIgnored private var onlineRoutes: [OnlineRoute] = []
@@ -82,8 +92,16 @@ struct OnlineResume: Codable {
         if let data = resumeDefaults.data(forKey: "recentPlayback") { recent = try? JSONDecoder().decode(RecentPlayback.self, from: data) }
         if let data = resumeDefaults.data(forKey: "onlineRecentPlayback") { onlineRecent = try? JSONDecoder().decode(OnlineResume.self, from: data) }
         onlineMostRecent = resumeDefaults.bool(forKey: "onlineMostRecent")
+        if let data = resumeDefaults.data(forKey: "playbackHistory") {
+            history = (try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data)) ?? []
+        }
         do { engine = try MPVEngine(headless: headless) }
         catch { engine = nil; self.error = error.localizedDescription }
+        if resumeDefaults.data(forKey: "playbackHistory") == nil {
+            if let onlineRecent, !onlineMostRecent { recordHistory(recent: nil, online: onlineRecent) }
+            if let recent { recordHistory(recent: recent, online: nil) }
+            if let onlineRecent, onlineMostRecent { recordHistory(recent: nil, online: onlineRecent) }
+        }
         engine?.onWarning = { [weak self] message in self?.pendingExternalIndex = nil; self?.pendingSeek = nil; self?.syncError = message }
         engine?.onLoaded = { [weak self] in self?.didLoad() }
         engine?.onUpdate = { [weak self] in self?.updateTime() }
@@ -200,6 +218,36 @@ struct OnlineResume: Codable {
         loadOnline(current, source: source)
     }
 
+    func resumeHistory(_ entry: PlaybackHistoryEntry, client: EmbyClient?, source: OnlineSource?) {
+        if let recent = entry.recent, let client, recent.belongs(to: client) {
+            stopCurrent(); sources = []; queue = []; settings = recent.settings
+            load(item: recent.item, client: client, seconds: recent.position, sourceID: recent.sourceID)
+        } else if let online = entry.online, let source, online.entry.sourceID == source.id {
+            loadOnline(online, source: source)
+        }
+    }
+
+    func removeHistory(_ id: String) { history.removeAll { $0.id == id }; persistHistory() }
+    func clearHistory() { history = []; persistHistory() }
+
+    private func recordHistory(recent: RecentPlayback?, online: OnlineResume?) {
+        let identity: String
+        if let recent {
+            identity = [recent.baseURL.absoluteString, recent.userID, recent.serverKind.rawValue, recent.item.id].joined(separator: "\n")
+        } else if let online {
+            identity = "\(online.entry.id)\n\(online.route)\n\(online.episode)"
+        } else { return }
+        let id = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        history.removeAll { $0.id == id }
+        history.insert(PlaybackHistoryEntry(id: id, watchedAt: Date(), recent: recent, online: online), at: 0)
+        history = Array(history.prefix(200))
+        persistHistory()
+    }
+
+    private func persistHistory() {
+        if let data = try? JSONEncoder().encode(history) { resumeDefaults.set(data, forKey: "playbackHistory") }
+    }
+
     private func loadOnline(_ resume: OnlineResume, source: OnlineSource) {
         stopCurrent()
         guard resume.entry.sourceID == source.id, let engine else { return }
@@ -267,6 +315,7 @@ struct OnlineResume: Codable {
             resumeDefaults.set(true, forKey: "onlineMostRecent")
             resumeDefaults.set(position, forKey: "onlinePosition.\(current.entry.id).\(current.route).\(current.episode)")
             if let data = try? JSONEncoder().encode(current) { resumeDefaults.set(data, forKey: "onlineRecentPlayback") }
+            recordHistory(recent: nil, online: current)
             return
         }
         guard var item, let client else { return }
@@ -277,6 +326,7 @@ struct OnlineResume: Codable {
         recentQueue = queue
         onlineMostRecent = false; resumeDefaults.set(false, forKey: "onlineMostRecent")
         if let data = try? JSONEncoder().encode(recent) { resumeDefaults.set(data, forKey: "recentPlayback") }
+        recordHistory(recent: recent, online: nil)
     }
 
     private func load(item: MediaItem, client: EmbyClient, seconds: Double, sourceID: String?, autoplay: Bool = true) {

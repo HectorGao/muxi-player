@@ -121,6 +121,21 @@ import Testing
         do { _ = try await isolated.data(for: post); Issue.record("A failed POST was replayed") }
         catch { #expect((error as NSError).code == NSURLErrorTimedOut) }
     }
+
+    @Test func boundedWebsiteRequestsReuseThePublicNetworkRetryPolicy() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TimeoutFixtureProtocol.self]
+        let network = PublicNetwork(primary: URLSession(configuration: configuration), fallback: session())
+        let (bytes, response) = try await network.bytes(for: URLRequest(url: URL(string: "https://catalog.test/ratings")!))
+        defer { bytes.task.cancel() }
+        var data = Data()
+        for try await byte in bytes { data.append(byte) }
+        #expect((response as? HTTPURLResponse)?.statusCode == 200 && !data.isEmpty)
+        let attempts = TimeoutFixtureProtocol.attempts
+        let (again, _) = try await network.bytes(for: URLRequest(url: URL(string: "https://catalog.test/ratings")!))
+        again.task.cancel()
+        #expect(TimeoutFixtureProtocol.attempts == attempts)
+    }
 }
 
 private final class TimeoutFixtureProtocol: URLProtocol {

@@ -18,15 +18,31 @@ public actor PublicNetwork {
         }
         do { return try await primary.data(for: request) }
         catch {
-            try Task.checkCancellation()
-            let failure = error as NSError
-            guard ["GET", "HEAD"].contains(request.httpMethod ?? "GET"), failure.domain == NSURLErrorDomain,
-                  [NSURLErrorTimedOut, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost, NSURLErrorNetworkConnectionLost].contains(failure.code),
-                  let retry = injectedFallback ?? Self.manualProxySession(for: request.url) else { throw error }
+            let retry = try retrySession(for: request, after: error)
             let result = try await retry.data(for: request)
             fallback = retry; preferFallbackUntil = Date().addingTimeInterval(60)
             return result
         }
+    }
+
+    public func bytes(for request: URLRequest) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        if preferFallbackUntil > Date(), let fallback { return try await fallback.bytes(for: request) }
+        do { return try await primary.bytes(for: request) }
+        catch {
+            let retry = try retrySession(for: request, after: error)
+            let result = try await retry.bytes(for: request)
+            fallback = retry; preferFallbackUntil = Date().addingTimeInterval(60)
+            return result
+        }
+    }
+
+    private func retrySession(for request: URLRequest, after error: Error) throws -> URLSession {
+        try Task.checkCancellation()
+        let failure = error as NSError
+        guard ["GET", "HEAD"].contains(request.httpMethod ?? "GET"), failure.domain == NSURLErrorDomain,
+              [NSURLErrorTimedOut, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost, NSURLErrorNetworkConnectionLost].contains(failure.code),
+              let retry = injectedFallback ?? Self.manualProxySession(for: request.url) else { throw error }
+        return retry
     }
 
     private static func manualProxySession(for url: URL?) -> URLSession? {
@@ -40,6 +56,7 @@ public actor PublicNetwork {
         proxies[kCFNetworkProxiesProxyAutoDiscoveryEnable as String] = 0
         proxies.removeValue(forKey: kCFNetworkProxiesProxyAutoConfigURLString as String)
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
         configuration.connectionProxyDictionary = proxies
         return URLSession(configuration: configuration)
     }

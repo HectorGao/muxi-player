@@ -4,6 +4,7 @@ import MuxiCore
 struct ConnectView: View {
     @Bindable var connection: ConnectionStore
     var source: SavedMediaSource? = nil
+    var preset: ViewingSite? = nil
     var saved: (() -> Void)? = nil
     var cancel: (() -> Void)? = nil
     @ViewState private var name = ""
@@ -106,6 +107,9 @@ struct ConnectView: View {
                     username = source.connection.user.Name
                     serverKind = source.connection.serverKind ?? .emby
                     clientIdentity = source.connection.clientIdentity ?? .muxi
+                } else if let preset {
+                    name = preset.name; address = preset.url.absoluteString
+                    serverKind = preset.kind == .jellyfin ? .jellyfin : .emby
                 }
                 focused = source == nil
             }

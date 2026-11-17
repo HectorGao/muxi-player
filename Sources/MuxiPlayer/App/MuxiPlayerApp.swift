@@ -17,7 +17,12 @@ import MuxiCore
                 .frame(minWidth: 960, minHeight: 640)
                 .preferredColorScheme(appearance.colorScheme)
                 .tint(Theme.accent)
-                .task { delegate.playback = playback; updater.start(); await connection.restore() }
+                .task {
+                    delegate.playback = playback; updater.start()
+                    await connection.restore()
+                    await OnlineLibraryStore.shared.restore()
+                    await ViewingSiteStore.shared.start(online: OnlineLibraryStore.shared.sources, servers: connection.sources)
+                }
         }
         .defaultSize(width: 1320, height: 900)
         .windowStyle(.hiddenTitleBar)
