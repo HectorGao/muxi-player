@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import SwiftUI
 import Security
 import MuxiCore
 
@@ -63,6 +64,10 @@ import MuxiCore
         store.synchronize(online: [cms], servers: [])
         await store.check(store.allSites.first { $0.id == cms.id })
         try require(store.health[cms.id]?.status == .online, "Synced CMS source did not validate its API")
+        var preset = OnlineSource.defaults[0]; preset.enabled = false
+        store.synchronize(online: [preset, cms], servers: [])
+        try require(store.syncedSites.first?.isDefault == true && store.syncedSites.first?.enabled == false && store.syncedSites.last?.isDefault == false,
+                    "Site selector lost built-in/custom provenance or enabled state")
         store.synchronize(online: [], servers: [])
         try require(!store.allSites.contains { $0.id == cms.id }, "Removed CMS source stayed in the monitor roster")
         let duplicate = await store.upsert(nil, name: "Duplicate", address: fast.url.absoluteString + "/", kind: .web)
@@ -85,6 +90,8 @@ import MuxiCore
         store.recordVisit(url: URL(string: "http://127.0.0.1/secret?api_key=secret")!, title: "Secret")
         try require(store.visits.count == 3, "Sensitive login URL entered browsing history")
 
+        try await presentation(url: fast.url, store: store)
+
         let secondLaunch = ViewingSiteStore(credentials: credentials, defaults: defaults)
         await secondLaunch.start(online: [], servers: [])
         try require(secondLaunch.visits.count == 3 && secondLaunch.health[failing.id]?.failures == 3, "History or health failed to persist")
@@ -106,6 +113,40 @@ import MuxiCore
         print("PASS: custom sites, roster sync, failures, startup once, fastest choice, history and third-launch cache cleanup")
     }
 
+    static func presentation(url: URL, store: ViewingSiteStore) async throws {
+        let state = PlayerWindow()
+        let owner = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: WebsitePresentationFixture(url: url, store: store, state: state))
+        owner.contentView = host
+        state.window = owner
+        owner.orderFront(nil)
+        defer { owner.orderOut(nil) }
+        func webView(_ view: NSView) -> WKWebView? {
+            if let web = view as? WKWebView { return web }
+            return view.subviews.lazy.compactMap { webView($0) }.first
+        }
+        try await wait("Hosted website") { webView(host)?.title == "观影测试站" }
+        guard let web = webView(host) else { throw CatalogError("Hosted WebKit is missing") }
+        _ = try await web.evaluateJavaScript("window.muxiToken='kept'; var v=document.createElement('video'); v.src='/emby/Videos/movie/stream'; v.muted=true; v.playbackRate=1.25; document.body.appendChild(v); v.play(); true;")
+        var started = false
+        for _ in 0..<100 {
+            if (try await web.evaluateJavaScript("document.querySelector('video').currentTime") as? Double ?? 0) > 0.5 { started = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try require(started, "WebKit fixture video did not play")
+        let frame = owner.frame
+        for fullScreen in [false, true, false] {
+            state.isFullScreen = fullScreen
+            if !fullScreen { state.toggleWindowFullScreen() }
+            try await Task.sleep(for: .milliseconds(250))
+            try require(webView(host) === web && owner.frame == frame, "Fullscreen recreated WebKit or moved the window")
+            let preserved = try await web.evaluateJavaScript("window.muxiToken==='kept' && document.querySelector('video').currentTime>0.5 && document.querySelector('video').playbackRate===1.25 && document.querySelector('video').muted") as? Bool
+            try require(preserved == true, "Fullscreen reset website state or playback")
+        }
+        web.stopLoading(); _ = try await web.evaluateJavaScript("document.querySelector('video').pause()")
+        print("PASS: hosted WebKit identity, playback position, rate and mute across window/system presentation state")
+    }
+
     static func live() async throws {
         let probe = SiteProbe()
         let catalogs = OnlineSource.defaults.map {
@@ -114,6 +155,21 @@ import MuxiCore
         for site in ViewingSite.defaults.filter(\.monitored) + catalogs {
             let result = try await probe.check(site)
             print("LIVE: \(site.name) \(result.status.rawValue) \(result.milliseconds.map(String.init) ?? "-") ms \(result.message ?? "")")
+        }
+    }
+}
+
+private struct WebsitePresentationFixture: View {
+    let url: URL
+    let store: ViewingSiteStore
+    let state: PlayerWindow
+    var body: some View {
+        HStack {
+            if !state.isImmersive { Text("Sidebar").frame(width: 180) }
+            VStack {
+                if !state.isImmersive { Text("Toolbar") }
+                WebsiteView(url: url, store: store, window: state, close: {})
+            }
         }
     }
 }

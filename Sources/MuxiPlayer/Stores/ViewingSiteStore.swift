@@ -55,7 +55,7 @@ struct WebsiteVisit: Codable, Identifiable {
         let previous = Dictionary(allSites.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         syncedSites = online.map {
             ViewingSite(id: $0.id, name: $0.name, url: $0.url, kind: $0.kind == .cms ? .cms : .archive,
-                        enabled: $0.enabled, note: "在管理媒体源中编辑", collection: $0.collection)
+                        enabled: $0.enabled, isDefault: $0.isDefault, note: "在管理媒体源中编辑", collection: $0.collection)
         } + servers.map {
             ViewingSite(id: $0.id, name: $0.name, url: $0.connection.baseURL,
                         kind: ($0.connection.serverKind ?? .emby) == .emby ? .emby : .jellyfin, note: "已保存的媒体库")

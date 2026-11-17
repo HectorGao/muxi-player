@@ -35,6 +35,8 @@ jobs:
         run: ./script/test.sh
       - name: Verify persistent and incremental metadata index
         run: ./script/check_index.sh
+      - name: Verify catalog categories, cache and paging
+        run: ./script/check_online.sh --catalog
       - name: Check loopback media fixture
         run: python3 script/smoke_server.py --self-test
       - name: Build and verify Apple Silicon app

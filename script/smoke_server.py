@@ -73,6 +73,25 @@ def run_ffmpeg(args):
     subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args], check=True)
 
 
+def catalog(query, base):
+    classes = [{"type_id": 1, "type_name": "电视剧"}, {"type_id": 2, "type_name": "电影"},
+               {"type_id": 6, "type_pid": 2, "type_name": "动作片"}, {"type_id": 7, "type_pid": 2, "type_name": "剧情片"}]
+    rows = [{"vod_id": f"{category}-{index}", "vod_name": f"分页影片 {category}-{index:03d}", "type_id": category,
+             "type_name": "电视剧" if category == 1 else "动作片" if category == 6 else "剧情片", "vod_year": "2024",
+             "vod_play_from": "本机测试", "vod_play_url": f"正片${base}/movie/stream"}
+            for category, count in [(6, 225), (7, 137), (1, 31)] for index in range(1, count + 1)]
+    if "t" in query:
+        rows = [row for row in rows if str(row["type_id"]) == query["t"][0]]
+    if "wd" in query:
+        rows = [row for row in rows if query["wd"][0] in row["vod_name"]]
+    if "ids" in query:
+        rows = [row for row in rows if row["vod_id"] == query["ids"][0]]
+    if "h" in query:
+        rows = rows[:1]
+    page = max(1, int(query.get("pg", ["1"])[0]))
+    return {"class": classes, "list": rows[(page - 1) * 20:page * 20], "total": len(rows), "pagecount": (len(rows) + 19) // 20}
+
+
 def prepare():
     ROOT.mkdir(parents=True, exist_ok=True)
     (ROOT / "zh.srt").write_text("1\n00:00:00,000 --> 00:01:30,000\n幕汐字幕测试：山海之间，自在观看。\n", encoding="utf8")
@@ -195,7 +214,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/site/slow":
                 time.sleep(0.2)
             title = "第二页" if path == "/site/second" else "观影测试站"
-            data = f'<html><head><title>{title}</title></head><body><a href="/emby/site/second">下一页</a></body></html>'.encode()
+            player = '''<video id="film" src="/emby/Videos/movie/stream" controls autoplay muted width="800"></video>
+                <p id="position"></p><script>setInterval(()=>position.textContent='播放位置 '+film.currentTime.toFixed(1)+' 秒',200)</script>''' if path == "/site/player" else ""
+            data = f'<html><head><title>{title}</title></head><body><a href="/emby/site/second">下一页</a>{player}</body></html>'.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
@@ -210,6 +231,9 @@ class Handler(BaseHTTPRequestHandler):
             row = {"vod_id": 1, "vod_name": "Online fixture", "vod_year": "2024", "vod_play_from": "原画$$$慢速线路",
                    "vod_play_url": f"第一集${base}/mkv/stream#第二集${base}/movie/stream$$$第一集${base}/slow/stream"}
             return self.respond({"list": [row], "total": 1, "pagecount": 1})
+        if path == "/catalog":
+            self.record("CatalogPage", {key: query.get(key, [None])[0] for key in ["ac", "wd", "pg", "t", "h"]})
+            return self.respond(catalog(query, f"http://{self.headers['Host']}/emby/Videos"))
         if path == "/offline-cms":
             self.record("OfflineOnlineQuery", {})
             return self.respond({}, 503)
@@ -310,6 +334,10 @@ if __name__ == "__main__":
         assert library_items({"SearchTerm": ["mkv"]})["Items"][0]["Id"] == "mkv"
         assert library_items({"ParentId": ["series"]})["Items"][0]["Id"] == "show"
         assert library_items({"Filters": ["IsFavorite"]})["Items"] == []
+        movie_page = catalog({"t": ["6"], "pg": ["2"]}, "http://127.0.0.1/Videos")
+        assert movie_page["total"] == 225 and len(movie_page["list"]) == 20
+        assert movie_page["list"][0]["vod_id"] == "6-21"
+        assert catalog({"t": ["2"]}, "http://127.0.0.1/Videos")["total"] == 0
         FAVORITES.add("movie")
         assert library_items({"Filters": ["IsFavorite"]})["Items"][0]["Id"] == "movie"
         FAVORITES.discard("movie")

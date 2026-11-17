@@ -32,16 +32,16 @@ import MuxiCore
             }
             CommandGroup(replacing: .newItem) {}
             CommandMenu("播放") {
-                Button("播放 / 暂停") { playback.togglePause() }.keyboardShortcut(.space, modifiers: [])
-                Button("后退 10 秒") { playback.seek(to: playback.position - 10) }.keyboardShortcut(.leftArrow, modifiers: [])
-                Button("前进 10 秒") { playback.seek(to: playback.position + 10) }.keyboardShortcut(.rightArrow, modifiers: [])
+                Button("播放 / 暂停") { playback.togglePause() }.keyboardShortcut(.space, modifiers: []).disabled(playback.item == nil)
+                Button("后退 10 秒") { playback.seek(to: playback.position - 10) }.keyboardShortcut(.leftArrow, modifiers: []).disabled(playback.item == nil)
+                Button("前进 10 秒") { playback.seek(to: playback.position + 10) }.keyboardShortcut(.rightArrow, modifiers: []).disabled(playback.item == nil)
                 Divider()
                 Button("下一集") { playback.playNext() }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(!playback.canPlayNext)
                 Button("停止播放") { Task { await playback.stop() } }.keyboardShortcut(".")
                 Divider()
                 Button(playerWindow?.isWindowFullScreen == true && playerWindow?.isFullScreen == false ? "退出窗口全屏" : "窗口全屏") {
                     playerWindow?.toggleWindowFullScreen()
-                }.keyboardShortcut(.return, modifiers: [.command]).disabled(playerWindow == nil || playback.item == nil)
+                }.keyboardShortcut(.return, modifiers: [.command]).disabled(playerWindow == nil || (playback.item == nil && playerWindow?.hasWebsite != true))
                 Button(playerWindow?.isFullScreen == true ? "退出系统全屏" : "进入系统全屏") {
                     playerWindow?.toggleFullScreen()
                 }.keyboardShortcut("f", modifiers: [.command, .control]).disabled(playerWindow == nil)

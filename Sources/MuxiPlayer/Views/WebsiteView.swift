@@ -89,11 +89,12 @@ private struct WebsiteWebView: NSViewRepresentable {
 struct WebsiteView: View {
     let url: URL
     let store: ViewingSiteStore
+    let window: PlayerWindow
     let close: () -> Void
     @ViewState private var browser: WebsiteBrowser
 
-    init(url: URL, store: ViewingSiteStore, close: @escaping () -> Void) {
-        self.url = url; self.store = store; self.close = close
+    init(url: URL, store: ViewingSiteStore, window: PlayerWindow, close: @escaping () -> Void) {
+        self.url = url; self.store = store; self.window = window; self.close = close
         _browser = ViewState(wrappedValue: WebsiteBrowser(store: store))
     }
 
@@ -106,14 +107,24 @@ struct WebsiteView: View {
                 if browser.loading { ProgressView().controlSize(.small) }
                 Text(browser.currentURL?.host ?? url.host ?? "观影网站").font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                Button { window.toggleWindowFullScreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.help("窗口全屏 ⌘↩")
+                Button { window.toggleFullScreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right.rectangle") }.help("系统全屏 ⌃⌘F")
                 Link(destination: browser.currentURL ?? url) { Label("浏览器打开", systemImage: "arrow.up.right.square") }
                 Button("返回站点", action: close)
             }.buttonStyle(.borderless).padding(14).background(.regularMaterial)
+                .frame(height: window.isImmersive ? 0 : nil).clipped().opacity(window.isImmersive ? 0 : 1)
             if let error = browser.error {
                 HStack { Label(error, systemImage: "exclamationmark.triangle"); Spacer(); Button("重试") { browser.load(url) } }
                     .font(.callout).padding(14)
             }
             WebsiteWebView(browser: browser)
-        }.onAppear { browser.load(url) }.onChange(of: url) { _, value in browser.load(value) }
+        }.overlay(alignment: .topTrailing) {
+            if window.isImmersive {
+                Button { window.exitPresentation() } label: { Label("退出全屏", systemImage: "arrow.down.right.and.arrow.up.left") }
+                    .buttonStyle(.bordered).padding(12).background(.regularMaterial, in: Capsule()).padding(14)
+            }
+        }
+        .onAppear { if browser.currentURL == nil { browser.load(url) } }
+        .onChange(of: url) { _, value in browser.load(value) }
     }
 }

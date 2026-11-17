@@ -13,6 +13,7 @@ extension FocusedValues {
     var isFullScreen = false
     var isWindowFullScreen = false
     var showingOptions = false
+    var hasWebsite = false
     var isImmersive: Bool { isFullScreen || isWindowFullScreen }
 
     func toggleFullScreen() { window?.toggleFullScreen(nil) }

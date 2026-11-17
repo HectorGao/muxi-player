@@ -58,3 +58,13 @@ HTTP 检查覆盖网页与公共接口，逐片和长片播放仍需分别验证
 同日使用名为 `MuxiPlayer` 的原生检测进程复测全部 17 个观影 / 接口入口，13 个在线，可可、爱迪和红牛出现连接超时，LibreTV 演示站返回 HTTP 502。普通检测进程可读取上述三个入口，进程与网络路径会影响结果。界面保留逐站状态，自动优选依据当次本机检测。既有播放源直连分流继续沿用。
 
 公益服指北、终点站公告、LibreTV 和 Jeffern / Joyflix 项目页列入资讯区，作为开通条件与地址变更的查阅入口。参考项目 README 记录过内置 Emby 因滥用停用，公益服的开放状态以运营方当前公告为准。[公益服指北](https://wiki.freeembyguide.eu.org/)、[终点站公告](https://t.me/s/embypub)。
+
+## 2026-11-18 分类、数量与新增源
+
+光速本机的 67 项是已缓存内容；API 当次返回混合内容总数 118,596，电影父分类仅 1 项，连同 8 个电影子分类共 38,301 条。父分类不包含子分类，逗号合并分类也无效，因此分别分页并去重。极速、虎牙、金鹰的 1 是电视剧、2 才是电影，魔都电影为 7；应用改用分类名称和父子关系。以上是当日源站记录数，非独立影片数或长期保证。[光速 API](https://api.guangsuapi.com/api.php/provide/vod/?ac=list)。
+
+本版原生分类取数实测光速首批载入 201 项，电影类总数为 45,401 条；此范围还包含独立的纪录片等电影分类。
+
+金鹰（混合目录 118,582 条）与魔都（91,939 条）加入默认列表：《肖申克的救赎》准确搜索、详情、HLS / 分片与应用 libmpv 实际解码通过，分别识别 720p / 1080p 视频及音轨，播放超过 0.5 秒。[金鹰 API 说明](https://www.jinyingzy.com/index.php/help)、[魔都 API 说明](https://www.mdzyapi.com/)。
+
+人人影视相关旧播放域名本机出现 TLS 错误或超时；可达的 yyets.org / renren.to 提供搜索与资源链接，未确认可直接播放的目录接口，本版不内置为播放源。[人人影视使用指南](https://www.yyets.org/guide)。Jeffern 参考实现使用 WKWebView 加载站点并注入页面控制，幕汐继续复用 WebKit 播放网站，CMS 和私人媒体库沿用 libmpv。[参考实现](https://github.com/King-JH484/LibreTV-MoonTV-Mac-Objective-C/blob/main/JeffernMovie/Home/HLHomeViewController.m)。

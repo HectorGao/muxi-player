@@ -16,7 +16,8 @@ struct OnlineLibraryView: View {
     let open: (OnlineItem, OnlineSource) -> Void
     var body: some View {
         ScrollView {
-            OnlineLibrarySection(store: store, source: source, selection: selection, search: search, revision: revision, open: open).padding(28)
+            OnlineLibrarySection(store: store, source: source, selection: selection, search: search, revision: revision, open: open)
+                .padding(28)
         }
     }
 }
@@ -28,13 +29,19 @@ struct OnlineLibrarySection: View {
     let search: String
     let revision: Int
     let open: (OnlineItem, OnlineSource) -> Void
+    var browse: (() -> Void)? = nil
     @ViewState private var lastRevision = 0
     @ViewState private var filter = LibraryFilter()
     @ViewState private var prepared: [MediaItem] = []
     @ViewState private var ratingNotice = ""
     @ViewState private var preparing = false
     @ViewState private var ratingRevision = 0
-    private var state: OnlineLibraryStore.State { store.state(source, search: search) }
+    private var scope: OnlineCatalogScope { OnlineCatalogScope(selection: selection) }
+    private var state: OnlineLibraryStore.State { store.state(source, search: search, scope: scope) }
+    private var countLabel: String {
+        "已载入 \(state.items.count) 项 / " + (state.totalIsExact ? "源站\(scope.label)共 \(state.total) 项" : "源站总数待确认") +
+        (search.isEmpty ? "" : "（当前搜索）")
+    }
     private var rawItems: [OnlineItem] {
         var items = selection == "favorites" ? store.favorites.filter { $0.sourceID == source.id } : state.items
         if !search.isEmpty, selection == "favorites" { items = items.filter { $0.media.Name.localizedStandardContains(search) } }
@@ -45,28 +52,31 @@ struct OnlineLibrarySection: View {
     private var items: [OnlineItem] {
         let rows = Dictionary(rawItems.map { ($0.media.id, $0) }, uniquingKeysWith: { first, _ in first })
         let values = prepared.isEmpty ? rawItems.map(\.media) : prepared
-        return filter.apply(to: values).compactMap { media in
+        let result = filter.apply(to: values).compactMap { media -> OnlineItem? in
             guard var row = rows[media.id] else { return nil }
             row.media = media
             return row
         }
+        return browse == nil ? result : Array(result.prefix(12))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        LazyVStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(source.name).font(.title2.weight(.semibold))
                     Text(source.kind == .archive ? "公开影视档案 · 直接播放" : "第三方社区源 · 苹果 CMS").font(.caption).foregroundStyle(.secondary)
+                    if state.checkedAt != nil, selection != "favorites" { Text(countLabel).font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
+                if let browse { Button("查看全部", action: browse) }
                 if state.fromCache { Text("本机缓存").font(.caption).foregroundStyle(.secondary) }
                 if state.loading { ProgressView().controlSize(.small) }
                 if selection != "favorites", state.error == nil {
-                    Button("检查更新") { Task { await store.load(source, search: search, force: true) } }.disabled(state.loading)
+                    Button("检查更新") { Task { await store.load(source, search: search, scope: scope, force: true) } }.disabled(state.loading)
                 }
             }
-            if selection != "home" || !search.isEmpty {
+            if browse == nil, selection != "home" || !search.isEmpty {
                 MovieRatingControls(filter: $filter)
                 Text("排序与榜单筛选应用于本机已载入的 \(rawItems.count) 项，可搜索片名或加载更多扩大范围。")
                     .font(.caption).foregroundStyle(.secondary)
@@ -77,7 +87,7 @@ struct OnlineLibrarySection: View {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("重试") { Task { await store.load(source, search: search, force: true) } }
+                    Button("重试") { Task { await store.load(source, search: search, scope: scope, force: true) } }.disabled(state.loading)
                 }
             }
             if items.isEmpty, !state.loading, state.error == nil { Text(filter.chart != nil ? "已载入内容中没有匹配的榜单影片，可搜索片名或加载更多。" : selection == "favorites" ? "喜欢的影片会保存在这里。" : "这个源暂时没有匹配的影片。").font(.callout).foregroundStyle(.secondary) }
@@ -107,11 +117,17 @@ struct OnlineLibrarySection: View {
                     }.help(item.media.Name)
                 }
             }
-            if selection != "favorites", state.hasMore {
-                Button("加载更多") { Task { await store.load(source, search: search, more: true) } }.disabled(state.loading)
+            if browse == nil, selection != "favorites", state.hasMore {
+                HStack {
+                    if state.loading { ProgressView().controlSize(.small) }
+                    Text(state.error == nil ? "向下滚动，自动载入更多" : "重试后继续载入").font(.caption).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity).padding(.vertical, 8)
+                    .task(id: "\(source.id)|\(scope.rawValue)|\(search)|\(state.page)|\(state.error ?? "")") {
+                        if state.error == nil { await store.load(source, search: search, scope: scope, more: true) }
+                    }
             }
             if let date = state.checkedAt, selection != "favorites" {
-                Text("本机已有 \(state.items.count) 项 · 同步于 " + date.formatted(date: .omitted, time: .shortened))
+                Text("同步于 " + date.formatted(date: .omitted, time: .shortened))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -122,7 +138,7 @@ struct OnlineLibrarySection: View {
                 try Task.checkCancellation()
                 let force = revision != lastRevision
                 lastRevision = revision
-                await store.load(source, search: search, force: force)
+                await store.load(source, search: search, scope: scope, force: force)
             } catch { }
         }
         .onReceive(NotificationCenter.default.publisher(for: .muxiMovieRatingsUpdated)) { _ in

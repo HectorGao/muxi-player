@@ -20,6 +20,7 @@ import Testing
         #expect(try OnlineCatalogClient.parseCMSPage(["list": NSNull()], source: source).items.isEmpty)
         #expect(throws: (any Error).self) { _ = try OnlineCatalogClient.parseCMSPage(["list": "bad"], source: source) }
         #expect(throws: (any Error).self) { _ = try OnlineCatalogClient.parseCMSPage(["list": [["unknown": "x"]]], source: source) }
+        #expect(try !OnlineCatalogClient.parseCMSPage(["list": [["vod_id": 1, "vod_name": "Unknown total"]]], source: source).totalIsExact)
     }
 
     @Test func routesKeepLinesEpisodesAndQuerySignatures() throws {
@@ -34,6 +35,22 @@ import Testing
         #expect(try OnlineCatalogClient.checkedURL("http://127.0.0.1:8765/api").port == 8765)
     }
 
+    @Test func categoriesUseNamesAndParentsInsteadOfFixedMovieAndSeriesIDs() throws {
+        let categories = [OnlineCategory(id: "1", name: "电视剧"), OnlineCategory(id: "2", name: "电影"),
+                          OnlineCategory(id: "6", name: "动作片", parentID: "2"), OnlineCategory(id: "9", name: "国产剧", parentID: "1"),
+                          OnlineCategory(id: "5", name: "动漫电影"), OnlineCategory(id: "10", name: "其他", parentID: "6"),
+                          OnlineCategory(id: "11", name: "电影解说"), OnlineCategory(id: "12", name: "体育赛事")]
+        #expect(OnlineCategory.ids(for: .movies, in: categories) == ["2", "6", "5", "10"])
+        #expect(OnlineCategory.ids(for: .series, in: categories) == ["1", "9"])
+        let rows = [["vod_id": "tv", "vod_name": "剧", "type_id": "9", "type_id_1": "1"],
+                    ["vod_id": "movie", "vod_name": "片", "type_id": "10", "type_id_1": "2"]]
+        let page = try OnlineCatalogClient.parseCMSPage(["list": rows], source: source, categories: categories)
+        #expect(page.items.map { $0.media.Type } == ["Series", "Movie"])
+        #expect(OnlineCategory.ids(for: .movies, in: [OnlineCategory(id: "7", name: "电影"), OnlineCategory(id: "8", name: "连续剧")]) == ["7"])
+        #expect(OnlineCategory.ids(for: .movies, in: [OnlineCategory(id: "50", name: "剧情片"), OnlineCategory(id: "51", name: "国产剧")]) == ["50"])
+        #expect(OnlineCategory.mediaType(id: "a", in: [OnlineCategory(id: "a", name: "未知", parentID: "b"), OnlineCategory(id: "b", name: "未知", parentID: "a")]) == nil)
+    }
+
     @Test func incrementalCMSRequestPreservesAuthenticationParameters() async throws {
         let client = OnlineCatalogClient(session: session())
         let source = OnlineSource(name: "Fixture", url: URL(string: "https://catalog.test/cms?token=example")!)
@@ -45,6 +62,9 @@ import Testing
         #expect(query.first { $0.name == "ac" }?.value == "videolist")
         #expect(query.first { $0.name == "token" }?.value == "example")
         #expect(Int(query.first { $0.name == "h" }!.value!)! >= 3)
+        let scoped = try await client.page(source: source, categoryID: "2")
+        #expect(!scoped.totalIsExact)
+        #expect(URLComponents(url: OnlineFixtureProtocol.requests.last!.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "t" }?.value == "2")
     }
 
     @Test func archiveFilesAreAlternativeRoutesAndPrivateFilesAreExcluded() async throws {

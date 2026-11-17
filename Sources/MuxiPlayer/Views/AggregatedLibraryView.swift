@@ -11,6 +11,7 @@ struct AggregatedLibraryView: View {
     let open: (MediaItem, SavedMediaSource, LibraryStore, EmbyClient) -> Void
     let browse: (SavedMediaSource, String) -> Void
     let openOnline: (OnlineItem, OnlineSource) -> Void
+    let browseOnline: (OnlineSource) -> Void
     let posters: (UUID, [MediaItem]) -> Void
     @ViewState private var libraries: [UUID: LibraryStore] = [:]
     @ViewState private var lastOnlineRevision = 0
@@ -31,7 +32,8 @@ struct AggregatedLibraryView: View {
                     }
                 }
                 ForEach(selection == "favorites" ? online.sources : online.enabledSources) { source in
-                    OnlineLibrarySection(store: online, source: source, selection: selection, search: search, revision: onlineRevision, open: openOnline)
+                    OnlineLibrarySection(store: online, source: source, selection: selection, search: search, revision: onlineRevision,
+                                         open: openOnline, browse: { browseOnline(source) })
                         .padding(22).background(Theme.surface.opacity(0.42), in: RoundedRectangle(cornerRadius: 22))
                 }
             }.padding(28)
@@ -54,7 +56,9 @@ struct AggregatedLibraryView: View {
                         }
                     }
                     if selection != "favorites" {
-                        for source in online.enabledSources { group.addTask { await online.load(source, search: search, force: forceOnline) } }
+                        for source in online.enabledSources {
+                            group.addTask { await online.load(source, search: search, scope: OnlineCatalogScope(selection: selection), force: forceOnline) }
+                        }
                     }
                 }
             } catch { }

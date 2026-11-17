@@ -27,7 +27,9 @@ public struct OnlineSource: Codable, Identifiable, Hashable {
         .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211006")!, name: "光速资源", url: URL(string: "https://api.guangsuapi.com/api.php/provide/vod/")!, isDefault: true),
         .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211007")!, name: "无尽资源", url: URL(string: "https://api.wujinapi.com/api.php/provide/vod/")!, isDefault: true),
         .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211008")!, name: "虎牙资源", url: URL(string: "https://www.huyaapi.com/api.php/provide/vod/")!, isDefault: true),
-        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211009")!, name: "火狐资源", url: URL(string: "https://hhzyapi.com/api.php/provide/vod/")!, isDefault: true)
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211009")!, name: "火狐资源", url: URL(string: "https://hhzyapi.com/api.php/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211010")!, name: "金鹰资源", url: URL(string: "https://jyzyapi.com/provide/vod/")!, isDefault: true),
+        .init(id: UUID(uuidString: "0FF267EA-B18C-44A7-A93A-9DF594211011")!, name: "魔都资源", url: URL(string: "https://www.mdzyapi.com/api.php/provide/vod/")!, isDefault: true)
     ]
 
     public static func mergingDefaults(into saved: [OnlineSource]) -> [OnlineSource] {
@@ -57,6 +59,7 @@ public struct OnlinePage {
     public let items: [OnlineItem]
     public let total: Int
     public let hasMore: Bool
+    public var totalIsExact = true
 }
 
 public struct OnlineEpisode: Identifiable {
@@ -115,7 +118,22 @@ public struct OnlineCatalogClient {
         return parts.url!
     }
 
-    public func page(source: OnlineSource, search: String = "", page: Int = 1, since: Date? = nil) async throws -> OnlinePage {
+    public func categories(source: OnlineSource) async throws -> [OnlineCategory] {
+        let object = try await json(url(source.url, query: [.init(name: "ac", value: "list"), .init(name: "pg", value: "1")]))
+        guard let rows = object["class"] as? [[String: Any]], !rows.isEmpty else { throw CatalogError("此接口暂未提供分类，可浏览全部内容或重试。") }
+        var seen = Set<String>()
+        let categories = rows.prefix(500).compactMap { row -> OnlineCategory? in
+            let id = Self.text(row["type_id"]), name = Self.text(row["type_name"])
+            guard !id.isEmpty, !name.isEmpty, seen.insert(id).inserted else { return nil }
+            let parent = Self.text(row["type_pid"])
+            return OnlineCategory(id: id, name: name, parentID: parent.isEmpty ? nil : parent)
+        }
+        guard !categories.isEmpty else { throw CatalogError("源站分类格式暂时无法识别。") }
+        return categories
+    }
+
+    public func page(source: OnlineSource, search: String = "", page: Int = 1, since: Date? = nil,
+                     categoryID: String? = nil, categories: [OnlineCategory] = []) async throws -> OnlinePage {
         if source.kind == .archive {
             var query = "collection:\(source.collection ?? "feature_films") AND mediatype:movies AND NOT access-restricted-item:true"
             if !search.isEmpty {
@@ -144,23 +162,32 @@ public struct OnlineCatalogClient {
                 if let imdb = record["imdb-id"] as? String, Self.isIMDbID(imdb) { media.ProviderIds = ["Imdb": imdb] }
                 return OnlineItem(sourceID: source.id, remoteID: id, media: media)
             }
-            let total = (result["numFound"] as? Int) ?? items.count
-            return OnlinePage(items: items, total: total, hasMore: page * 24 < total && !docs.isEmpty)
+            let declared = result["numFound"] as? Int
+            let total = max(0, declared ?? items.count)
+            return OnlinePage(items: items, total: total, hasMore: page * 24 < total && !docs.isEmpty, totalIsExact: declared != nil && declared! >= 0)
         }
         var query = [URLQueryItem(name: "ac", value: "videolist"), .init(name: "pg", value: String(page))]
         if !search.isEmpty { query.append(.init(name: "wd", value: search)) }
+        if let categoryID { query.append(.init(name: "t", value: categoryID)) }
         if let since { query.append(.init(name: "h", value: String(max(1, Int(ceil(Date().timeIntervalSince(since) / 3600)) + 1)))) }
-        return try Self.parseCMSPage(await json(url(source.url, query: query)), source: source, page: page)
+        let object = try await json(url(source.url, query: query))
+        var result = try Self.parseCMSPage(object, source: source, page: page, categories: categories)
+        if let categoryID, let rows = object["list"] as? [[String: Any]] {
+            result.totalIsExact = result.totalIsExact && rows.allSatisfy { Self.text($0["type_id"]) == categoryID }
+        }
+        return result
     }
 
-    public static func parseCMSPage(_ object: [String: Any], source: OnlineSource, page: Int = 1) throws -> OnlinePage {
+    public static func parseCMSPage(_ object: [String: Any], source: OnlineSource, page: Int = 1,
+                                    categories: [OnlineCategory] = []) throws -> OnlinePage {
         if let list = object["list"], !(list is NSNull), !(list is [[String: Any]]) { throw CatalogError("采集接口的 list 字段格式无效。") }
         guard object.keys.contains("list") else { throw CatalogError("此地址不是苹果 CMS 采集接口。") }
         let rows = object["list"] as? [[String: Any]] ?? []
         let items = rows.compactMap { record -> OnlineItem? in
             let id = text(record["vod_id"]), name = text(record["vod_name"])
             guard !id.isEmpty, !name.isEmpty else { return nil }
-            var media = MediaItem(id: source.id.uuidString + ":" + id, name: name, type: mediaType(record))
+            let type = OnlineCategory.mediaType(id: text(record["type_id"]), in: categories) ?? OnlineCategory.mediaType(name: text(record["type_name"])) ?? "Video"
+            var media = MediaItem(id: source.id.uuidString + ":" + id, name: name, type: type)
             media.Overview = text(record["vod_content"]).replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             media.ProductionYear = Int(text(record["vod_year"]).prefix(4))
             media.ProductionLocations = text(record["vod_area"]).components(separatedBy: CharacterSet(charactersIn: "/,、" )).filter { !$0.isEmpty }
@@ -186,10 +213,11 @@ public struct OnlineCatalogClient {
             if ratings.hasValues { media.ExternalRatings = ratings }
             return OnlineItem(sourceID: source.id, remoteID: id, media: media)
         }
-        let total = Int(text(object["total"])) ?? items.count
+        let declared = Int(text(object["total"]))
+        let total = max(0, declared ?? items.count)
         guard rows.isEmpty || !items.isEmpty else { throw CatalogError("接口中的影片字段无法识别。") }
         let pageCount = Int(text(object["pagecount"])) ?? max(1, Int(ceil(Double(total) / Double(max(1, items.count)))))
-        return OnlinePage(items: items, total: total, hasMore: page < pageCount && !rows.isEmpty)
+        return OnlinePage(items: items, total: total, hasMore: page < pageCount && !rows.isEmpty, totalIsExact: declared != nil && declared! >= 0)
     }
 
     public func routes(for item: OnlineItem, source: OnlineSource) async throws -> [OnlineRoute] {
@@ -253,14 +281,6 @@ public struct OnlineCatalogClient {
     private static func validScore(_ value: Any?) -> Double? {
         guard let score = Double(text(value)), score.isFinite, score > 0, score <= 10 else { return nil }
         return score
-    }
-    private static func mediaType(_ record: [String: Any]) -> String {
-        let name = text(record["type_name"])
-        if name.contains("解说") || name.contains("预告") { return "Video" }
-        let parent = Int(text(record["type_id_1"] ?? record["type_pid"]))
-        if parent == 1 { return "Movie" }
-        if parent == 2 || name.hasSuffix("剧") || name.contains("连续剧") || name.contains("剧集") || name.contains("综艺") || name.hasSuffix("动漫") { return "Series" }
-        return "Movie"
     }
     private static func text(_ value: Any?) -> String {
         if let value = value as? String { return value.trimmingCharacters(in: .whitespacesAndNewlines) }

@@ -28,12 +28,13 @@ struct ContentView: View {
     @ViewState private var refreshRevision = 0
     @ViewState private var pendingFolder: MediaItem?
     @ViewState private var pendingSelection = "home"
+    @ViewState private var pendingOnlineContext: (selection: String, search: String)?
     @ViewState private var returnSelection = "home"
     @FocusState private var searchFocused: Bool
     @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
     @AppStorage("ambientMotion") private var ambientMotion = true
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var immersive: Bool { selection == "playing" && playback.item != nil && playerWindow.isImmersive }
+    private var immersive: Bool { (selection == "website" || (selection == "playing" && playback.item != nil)) && playerWindow.isImmersive }
 
     private var title: String {
         if selection == "sites" { return "观影站点" }
@@ -82,7 +83,7 @@ struct ContentView: View {
                             ViewingHistoryView(sites: sites, playback: playback, connection: connection, online: online,
                                                openWebsite: openWebsite, resume: resumeHistory)
                         } else if selection == "website", let url = websiteURL {
-                            WebsiteView(url: url, store: sites) { navigate("sites") }
+                            WebsiteView(url: url, store: sites, window: playerWindow) { navigate("sites") }
                         } else if selection == "playing" {
                             PlayerView(playback: playback, window: playerWindow, exit: exitPlayback)
                         } else if let source = online.selectedSource {
@@ -97,7 +98,7 @@ struct ContentView: View {
                         } else {
                             AggregatedLibraryView(connection: connection, selection: selection, search: query,
                                                   playbackRevision: playback.revision + refreshRevision, online: online,
-                                                  onlineRevision: refreshRevision, open: openAggregated, browse: browseSource, openOnline: openOnline,
+                                                  onlineRevision: refreshRevision, open: openAggregated, browse: browseSource, openOnline: openOnline, browseOnline: browseOnline,
                                                   posters: { sourcePosters[$0] = $1 })
                         }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -141,7 +142,14 @@ struct ContentView: View {
         }
         .onChange(of: online.selectedID) { _, _ in
             stopPlayback(); onlineDetail = nil; detail = nil
-            library = LibraryStore(); selection = "home"; search = ""
+            library = LibraryStore(); selection = pendingOnlineContext?.selection ?? "home"; search = pendingOnlineContext?.search ?? ""
+            pendingOnlineContext = nil
+        }
+        .onChange(of: selection, initial: true) { previous, current in
+            playerWindow.hasWebsite = current == "website"
+            if previous == "website", current != "website" {
+                playerWindow.isWindowFullScreen = false; playerWindow.exitFullScreen()
+            }
         }
         .onChange(of: connection.revision) { _, _ in
             stopPlayback(); detail = nil; sourcePosters = [:]; library = LibraryStore(); selection = "home"; search = ""
@@ -166,7 +174,6 @@ struct ContentView: View {
                 selection = returnSelection
             }
         }
-        .task { await online.restore() }
     }
 
     private var sidebar: some View {
@@ -313,6 +320,12 @@ struct ContentView: View {
         connection.selectSource(source.id)
     }
 
+    private func browseOnline(_ source: OnlineSource) {
+        startupOpenPending = false
+        pendingOnlineContext = (selection, search)
+        online.selectedID = source.id
+    }
+
     private func openAggregated(_ item: MediaItem, source: SavedMediaSource, library: LibraryStore, client: EmbyClient) {
         startupOpenPending = false
         if item.isContainer {
@@ -343,7 +356,9 @@ struct ContentView: View {
                 Button { library.path.removeLast() } label: { Image(systemName: "chevron.left") }.help("返回上一级")
             }
             Text(title).font(.callout.weight(.medium)).lineLimit(1)
-            Text(online.selectedSource?.name ?? connection.selectedSource?.name ?? "全部媒体源").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            SiteSelector(store: sites,
+                         selectedName: selection == "website" ? sites.allSites.first(where: { $0.url == websiteURL })?.name ?? websiteURL?.host : online.selectedSource?.name ?? connection.selectedSource?.name,
+                         open: openSite, manage: { navigate("sites") })
             Spacer()
             if let error = connection.error {
                 Label("媒体源提示", systemImage: "exclamationmark.triangle")

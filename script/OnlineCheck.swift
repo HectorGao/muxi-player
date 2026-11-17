@@ -25,9 +25,15 @@ import MuxiCore
         app.setActivationPolicy(.prohibited)
         Task { @MainActor in
             do {
-                try await fixture()
-                if CommandLine.arguments.contains("--live") { try await live() }
-                print("PASS: online source, cache and actual libmpv playback checks")
+                if CommandLine.arguments.contains("--community") { try await community() }
+                else {
+                    try await checkCatalogPaging()
+                    if !CommandLine.arguments.contains("--catalog") {
+                        try await fixture()
+                        if CommandLine.arguments.contains("--live") { try await live() }
+                    }
+                }
+                print("PASS: online checks")
                 exit(0)
             } catch { print("FAIL: " + error.localizedDescription); exit(1) }
         }
@@ -64,7 +70,7 @@ import MuxiCore
         try require(events("OnlineQuery").count == firstCount, "A cached search repeated the API query")
         try require(restored.state(source, search: "fixture").fromCache, "Disk cache did not survive a new store")
         await store.load(source, search: "fixture", force: true)
-        try require(events("OnlineQuery").last?["h"] is String, "Repeated search omitted the CMS incremental window")
+        try require(events("OnlineQuery").dropFirst(firstCount).contains { $0["h"] is String }, "Repeated search omitted the CMS incremental window")
         let failedCount = events("OfflineOnlineQuery").count
         await store.load(offline, search: "fixture")
         try require(events("OfflineOnlineQuery").count == failedCount, "Source cooldown was ignored")
@@ -144,5 +150,39 @@ import MuxiCore
         let ratings = await MovieRatings.shared.ratings(for: movie)
         try require(ratings.imdb?.source == "IMDb" && (ratings.imdb?.value ?? 0) > 0, "Live IMDb rating was unavailable")
         print("PASS: live public media Range 206 and attributed IMDb rating")
+    }
+
+    static func community() async throws {
+        let candidates = [("金鹰资源", "https://jyzyapi.com/provide/vod/"), ("魔都资源", "https://www.mdzyapi.com/api.php/provide/vod/")]
+        let client = OnlineCatalogClient()
+        for (name, address) in candidates {
+            let source = OnlineSource(name: name, url: URL(string: address)!)
+            let categories = try await client.categories(source: source)
+            try require(!OnlineCategory.ids(for: .movies, in: categories).isEmpty, name + ": no movie categories")
+            let page = try await client.page(source: source, search: "肖申克的救赎", categories: categories)
+            guard let item = page.items.first(where: { $0.media.Name == "肖申克的救赎" && $0.media.Type == "Movie" }) else { throw CatalogError(name + ": exact movie search failed") }
+            let suite = "com.hectorgao.muxi-player.community-check." + UUID().uuidString
+            let defaults = UserDefaults(suiteName: suite)!
+            let playback = PlaybackController(headless: true, resumeDefaults: defaults)
+            playback.volume = 0
+            playback.playOnline(item, source: source, route: 0, episode: 0, fromStart: true)
+            do {
+                try await wait(name + ": actual HLS decode") { playback.isPlaying && playback.position > 0.5 && (playback.engine?.videoHeight ?? 0) > 0 && !playback.audioTracks.isEmpty }
+                print("PASS: " + name + " exact search, categories and actual libmpv decode (\(playback.engine?.videoHeight ?? 0)p, \(playback.audioTracks.count) audio tracks)")
+                await playback.stop()
+                defaults.removePersistentDomain(forName: suite)
+            } catch {
+                let failure = playback.error ?? "none"
+                await playback.stop(); defaults.removePersistentDomain(forName: suite)
+                throw CatalogError(name + ": " + error.localizedDescription + "; player=" + failure)
+            }
+        }
+        let source = OnlineSource.defaults.first { $0.name == "光速资源" }!
+        let store = OnlineLibraryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("muxi-live-catalog-" + UUID().uuidString))
+        await store.load(source, search: "", scope: .movies)
+        if store.state(source, search: "", scope: .movies).error != nil { await store.load(source, search: "", scope: .movies, force: true) }
+        let state = store.state(source, search: "", scope: .movies)
+        try require(state.error == nil && state.totalIsExact && state.total > 1_000 && state.items.allSatisfy { $0.media.Type == "Movie" }, "Live movie category paging failed: " + (state.error ?? "unknown total"))
+        print("PASS: 光速电影分类 · loaded \(state.items.count) / total \(state.total), independent category cursors")
     }
 }
